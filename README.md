@@ -27,6 +27,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
+ou
+```bash
+python -m venv .venv
+source .venv/Scripts/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
 
 Defina `DATABASE_URL` se necessário (aceita forma síncrona ou assíncrona, a aplicação converte para `postgresql+asyncpg`).
 
