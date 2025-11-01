@@ -61,10 +61,12 @@ class SalesRepository:
             cp.product_name,
             cp.total_quantity,
             cp.total_revenue,
-            ROUND(cp.total_revenue / NULLIF((SELECT SUM(total_revenue) FROM current_period), 0) * 100, 2) AS pct_of_total,
             ROUND(
-                (cp.total_quantity - COALESCE(pp.total_quantity, 0))::DECIMAL 
-                / NULLIF(pp.total_quantity, 0) * 100, 2
+                (cp.total_revenue / NULLIF((SELECT SUM(total_revenue) FROM current_period), 0) * 100)::NUMERIC, 2
+            ) AS pct_of_total,
+            ROUND(
+                ((cp.total_quantity - COALESCE(pp.total_quantity, 0))::DECIMAL 
+                 / NULLIF(pp.total_quantity, 0) * 100)::NUMERIC, 2
             ) AS wow_change_pct
         FROM current_period cp
         LEFT JOIN previous_period pp ON pp.product_name = cp.product_name
@@ -72,10 +74,6 @@ class SalesRepository:
         """)
 
         pg_dow = (day_of_week % 7)  # 1=seg → 1, 7=dom → 0
-        if pg_dow == 0:
-            pg_dow = 0  # domingo → 0
-        else:
-            pg_dow = day_of_week % 7  # segunda=1 → 1, ..., sábado=6 → 6
 
         result = await self.db.execute(query, {
             "store_id": store_id,
@@ -126,10 +124,10 @@ class SalesRepository:
             cw.neighborhood,
             cw.city,
             cw.delivery_count,
-            ROUND(cw.avg_minutes, 2) AS avg_delivery_minutes,
-            ROUND(cw.p90_minutes, 2) AS p90_delivery_minutes,
+            ROUND(cw.avg_minutes::NUMERIC, 2) AS avg_delivery_minutes,
+            ROUND(cw.p90_minutes::NUMERIC, 2) AS p90_delivery_minutes,
             ROUND(
-                (cw.avg_minutes - COALESCE(pw.avg_minutes, 0)) / NULLIF(pw.avg_minutes, 0) * 100, 2
+                ((cw.avg_minutes - COALESCE(pw.avg_minutes, 0)) / NULLIF(pw.avg_minutes, 0) * 100)::NUMERIC, 2
             ) AS wow_change_pct
         FROM current_week cw
         LEFT JOIN previous_week pw 
@@ -177,7 +175,7 @@ class SalesRepository:
             JOIN channels ch ON ch.id = s.channel_id
             WHERE s.store_id = :store_id
               AND s.sale_status_desc = 'COMPLETED'
-              AND s.created_at >= NOW() - INTERVAL ':period_days days'
+              AND s.created_at >= NOW() - (:period_days || ' days')::INTERVAL
         )
         SELECT 
             channel_name,
