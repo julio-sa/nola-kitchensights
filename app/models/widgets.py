@@ -36,7 +36,7 @@ class DeliveryHeatmapResponse(BaseModel):
 # ---
 
 class AtRiskCustomer(BaseModel):
-    customer_name: str
+    customer_name: Optional[str] = "Cliente Anônimo"
     customer_id: int
     total_orders: int
     last_order_date: date

@@ -143,7 +143,7 @@ class SalesRepository:
         """
         query = text("""
         SELECT 
-            s.customer_name,
+            COALESCE(s.customer_name, 'Cliente Anônimo') AS customer_name,
             s.customer_id,
             COUNT(*) AS total_orders,
             MAX(s.created_at)::DATE AS last_order_date,
