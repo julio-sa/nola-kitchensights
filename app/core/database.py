@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # URL de conexão do banco fornecido no desafio
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://challenge:challenge@localhost:5432/challenge_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://challenge:challenge@localhost:5432/challenge_db")
 
 # Engine sem pool (ótimo para ambientes serverless ou dev leve)
 engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
