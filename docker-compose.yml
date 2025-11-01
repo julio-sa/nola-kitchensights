@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: challenge_db
+      POSTGRES_USER: challenge
+      POSTGRES_PASSWORD: challenge
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
