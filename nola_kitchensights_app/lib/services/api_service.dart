@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../core/constants.dart';
-import '../data/models/top_products_response.dart';
-import '../data/models/delivery_heatmap_response.dart';
 import '../data/models/at_risk_customers_response.dart';
+import '../data/models/delivery_heatmap_response.dart';
+import '../data/models/revenue_overview_response.dart';
+import '../data/models/store_comparison_response.dart';
+import '../data/models/top_products_response.dart';
 
 class ApiService {
   static Future<TopProductsResponse> fetchTopProducts({
@@ -55,6 +57,69 @@ class ApiService {
       return AtRiskCustomersResponse.fromJson(jsonDecode(response.body));
     } else {
       throw Exception('Falha ao carregar clientes em risco: ${response.statusCode}');
+    }
+  }
+
+  static Future<RevenueOverviewResponse> fetchRevenueOverview({
+    required int storeId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/widgets/revenue-overview').replace(
+      queryParameters: {
+        'store_id': storeId.toString(),
+        'start_date': startDate.toIso8601String().split('T').first,
+        'end_date': endDate.toIso8601String().split('T').first,
+      },
+    );
+
+    final response = await http.get(url);
+    if (response.statusCode == 200) {
+      return RevenueOverviewResponse.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Falha ao carregar overview: ${response.statusCode}');
+    }
+  }
+
+  static Future<StoreComparisonResponse> fetchStoreComparison({
+    required int storeA,
+    required int storeB,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/widgets/store-comparison').replace(
+      queryParameters: {
+        'store_a_id': storeA.toString(),
+        'store_b_id': storeB.toString(),
+        'start_date': startDate.toIso8601String().split('T').first,
+        'end_date': endDate.toIso8601String().split('T').first,
+      },
+    );
+
+    final response = await http.get(url);
+    if (response.statusCode == 200) {
+      return StoreComparisonResponse.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Falha ao comparar lojas: ${response.statusCode}');
+    }
+  }
+
+  static Future<String> exportStorePerformance({
+    required List<int> storeIds,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    final base = '${ApiConstants.baseUrl}/reports/store-performance';
+    final start = startDate.toIso8601String().split('T').first;
+    final end = endDate.toIso8601String().split('T').first;
+    final storeQuery = storeIds.map((id) => 'store_ids=$id').join('&');
+    final uri = Uri.parse('$base?$storeQuery&start_date=$start&end_date=$end');
+
+    final response = await http.get(uri);
+    if (response.statusCode == 200) {
+      return response.body;
+    } else {
+      throw Exception('Falha ao exportar relatório: ${response.statusCode}');
     }
   }
 }

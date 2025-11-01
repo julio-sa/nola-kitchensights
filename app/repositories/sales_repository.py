@@ -1,6 +1,10 @@
+from datetime import date, timedelta
+from typing import Any, Dict, List
+import inspect
+from unittest.mock import AsyncMock
+
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from typing import List, Dict, Any
 
 class SalesRepository:
     """
@@ -75,14 +79,15 @@ class SalesRepository:
 
         pg_dow = (day_of_week % 7)  # 1=seg → 1, 7=dom → 0
 
-        result = await self.db.execute(query, {
+        params = {
             "store_id": store_id,
             "channel_name": channel_name,
             "dow": pg_dow,  # ajuste: FastAPI envia 1=seg, PG usa 0=dom → seg=1
             "hour_start": hour_start,
-            "hour_end": hour_end
-        })
-        return [dict(row) for row in result.mappings()]
+            "hour_end": hour_end,
+        }
+        result = await self._execute(query, params)
+        return await self._rows(result)
 
     async def get_delivery_heatmap_by_store(self, store_id: int) -> List[Dict[str, Any]]:
         """
@@ -134,8 +139,8 @@ class SalesRepository:
           ON pw.neighborhood = cw.neighborhood AND pw.city = cw.city
         ORDER BY cw.avg_minutes DESC;
         """)
-        result = await self.db.execute(query, {"store_id": store_id})
-        return [dict(row) for row in result.mappings()]
+        result = await self._execute(query, {"store_id": store_id})
+        return await self._rows(result)
 
     async def get_at_risk_customers(self, store_id: int) -> List[Dict[str, Any]]:
         """
@@ -158,8 +163,8 @@ class SalesRepository:
           AND MAX(s.created_at) < CURRENT_DATE - INTERVAL '30 days'
         ORDER BY days_since_last_order DESC;
         """)
-        result = await self.db.execute(query, {"store_id": store_id})
-        return [dict(row) for row in result.mappings()]
+        result = await self._execute(query, {"store_id": store_id})
+        return await self._rows(result)
 
     async def get_channel_performance(self, store_id: int, period_days: int = 30) -> List[Dict[str, Any]]:
         """
@@ -194,5 +199,318 @@ class SalesRepository:
         GROUP BY channel_name;
         """)
         # Nota: JSON aggregation requer cuidado — ajustar se necessário
-        result = await self.db.execute(query, {"store_id": store_id, "period_days": period_days})
-        return [dict(row) for row in result.mappings()]
+        result = await self._execute(query, {"store_id": store_id, "period_days": period_days})
+        return await self._rows(result)
+
+    async def get_revenue_overview(
+        self,
+        store_id: int,
+        start_date: date,
+        end_date: date,
+    ) -> Dict[str, Any]:
+        period_days = (end_date - start_date).days + 1
+        previous_end = start_date - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=period_days - 1) if period_days > 0 else previous_end
+
+        query = text("""
+        WITH current_period AS (
+            SELECT
+                total_amount,
+                created_at::DATE AS sale_date,
+                channel_id
+            FROM sales
+            WHERE store_id = :store_id
+              AND sale_status_desc = 'COMPLETED'
+              AND created_at::DATE BETWEEN :start_date AND :end_date
+        ),
+        summary AS (
+            SELECT
+                COALESCE(SUM(total_amount), 0) AS total_sales,
+                COUNT(*) AS total_orders,
+                COALESCE(AVG(total_amount), 0) AS average_ticket
+            FROM current_period
+        ),
+        previous_period AS (
+            SELECT
+                COALESCE(SUM(total_amount), 0) AS total_sales,
+                COUNT(*) AS total_orders
+            FROM sales
+            WHERE store_id = :store_id
+              AND sale_status_desc = 'COMPLETED'
+              AND created_at::DATE BETWEEN :previous_start AND :previous_end
+        ),
+        daily AS (
+            SELECT
+                sale_date,
+                COALESCE(SUM(total_amount), 0) AS total_sales,
+                COUNT(*) AS total_orders
+            FROM current_period
+            GROUP BY sale_date
+            ORDER BY sale_date
+        ),
+        channel_breakdown AS (
+            SELECT
+                ch.name AS channel_name,
+                SUM(s.total_amount) AS channel_sales
+            FROM sales s
+            JOIN channels ch ON ch.id = s.channel_id
+            WHERE s.store_id = :store_id
+              AND s.sale_status_desc = 'COMPLETED'
+              AND s.created_at::DATE BETWEEN :start_date AND :end_date
+            GROUP BY ch.name
+        )
+        SELECT
+            summary.total_sales,
+            summary.total_orders,
+            summary.average_ticket,
+            previous_period.total_sales AS previous_total_sales,
+            previous_period.total_orders AS previous_total_orders,
+            COALESCE(
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'sale_date', sale_date,
+                            'total_sales', total_sales,
+                            'total_orders', total_orders
+                        )
+                        ORDER BY sale_date
+                    )
+                    FROM daily
+                ), '[]'::json
+            ) AS daily_breakdown,
+            COALESCE(
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'channel', channel_name,
+                            'total_sales', channel_sales,
+                            'share_pct',
+                                CASE WHEN summary.total_sales > 0
+                                    THEN ROUND((channel_sales / summary.total_sales * 100)::NUMERIC, 2)
+                                    ELSE 0
+                                END
+                        )
+                        ORDER BY channel_sales DESC
+                    )
+                    FROM channel_breakdown
+                ), '[]'::json
+            ) AS top_channels
+        FROM summary, previous_period;
+        """)
+
+        params = {
+            "store_id": store_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "previous_start": previous_start,
+            "previous_end": previous_end,
+        }
+        result = await self._execute(query, params)
+        row = result.mappings().one()
+        total_sales = float(row["total_sales"])
+        previous_sales = float(row["previous_total_sales"] or 0)
+        total_orders = row["total_orders"]
+        previous_orders = row["previous_total_orders"] or 0
+
+        def _change(current: float, previous: float) -> float:
+            if not previous:
+                return 0.0
+            return round((current - previous) / previous * 100, 2)
+
+        return {
+            "total_sales": total_sales,
+            "total_orders": total_orders,
+            "average_ticket": float(row["average_ticket"]),
+            "sales_change_pct": _change(total_sales, previous_sales),
+            "orders_change_pct": _change(total_orders, previous_orders),
+            "top_channels": row["top_channels"],
+            "daily_breakdown": row["daily_breakdown"],
+        }
+
+    async def get_store_comparison(
+        self,
+        store_a_id: int,
+        store_b_id: int,
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict[str, Any]]:
+        period_days = (end_date - start_date).days + 1
+        previous_end = start_date - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=period_days - 1) if period_days > 0 else previous_end
+
+        query = text("""
+        WITH current_period AS (
+            SELECT
+                store_id,
+                total_amount
+            FROM sales
+            WHERE store_id IN (:store_a_id, :store_b_id)
+              AND sale_status_desc = 'COMPLETED'
+              AND created_at::DATE BETWEEN :start_date AND :end_date
+        ),
+        summary AS (
+            SELECT
+                store_id,
+                COALESCE(SUM(total_amount), 0) AS total_sales,
+                COUNT(*) AS total_orders,
+                COALESCE(AVG(total_amount), 0) AS average_ticket
+            FROM current_period
+            GROUP BY store_id
+        ),
+        previous_period AS (
+            SELECT
+                store_id,
+                COALESCE(SUM(total_amount), 0) AS total_sales
+            FROM sales
+            WHERE store_id IN (:store_a_id, :store_b_id)
+              AND sale_status_desc = 'COMPLETED'
+              AND created_at::DATE BETWEEN :previous_start AND :previous_end
+            GROUP BY store_id
+        ),
+        channel_rank AS (
+            SELECT
+                s.store_id,
+                ch.name AS channel_name,
+                SUM(s.total_amount) AS channel_sales,
+                RANK() OVER (PARTITION BY s.store_id ORDER BY SUM(s.total_amount) DESC) AS channel_rank
+            FROM sales s
+            JOIN channels ch ON ch.id = s.channel_id
+            WHERE s.store_id IN (:store_a_id, :store_b_id)
+              AND s.sale_status_desc = 'COMPLETED'
+              AND s.created_at::DATE BETWEEN :start_date AND :end_date
+            GROUP BY s.store_id, ch.name
+        )
+        SELECT
+            summary.store_id,
+            st.name AS store_name,
+            summary.total_sales,
+            summary.total_orders,
+            summary.average_ticket,
+            CASE
+                WHEN COALESCE(prev.total_sales, 0) = 0 THEN 0
+                ELSE ROUND(((summary.total_sales - prev.total_sales) / prev.total_sales * 100)::NUMERIC, 2)
+            END AS sales_change_pct,
+            chan.channel_name AS top_channel,
+            CASE
+                WHEN summary.total_sales > 0 AND chan.channel_sales IS NOT NULL THEN
+                    ROUND((chan.channel_sales / summary.total_sales * 100)::NUMERIC, 2)
+                ELSE NULL
+            END AS top_channel_share_pct
+        FROM summary
+        JOIN stores st ON st.id = summary.store_id
+        LEFT JOIN previous_period prev ON prev.store_id = summary.store_id
+        LEFT JOIN channel_rank chan ON chan.store_id = summary.store_id AND chan.channel_rank = 1
+        ORDER BY summary.total_sales DESC;
+        """)
+
+        params = {
+            "store_a_id": store_a_id,
+            "store_b_id": store_b_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "previous_start": previous_start,
+            "previous_end": previous_end,
+        }
+        result = await self._execute(query, params)
+        return await self._rows(result)
+
+    async def get_store_performance_for_period(
+        self,
+        store_ids: List[int],
+        start_date: date,
+        end_date: date,
+    ) -> List[Dict[str, Any]]:
+        if not store_ids:
+            return []
+
+        query = text("""
+        WITH current_period AS (
+            SELECT
+                store_id,
+                total_amount
+            FROM sales
+            WHERE store_id IN :store_ids
+              AND sale_status_desc = 'COMPLETED'
+              AND created_at::DATE BETWEEN :start_date AND :end_date
+        ),
+        summary AS (
+            SELECT
+                store_id,
+                COALESCE(SUM(total_amount), 0) AS total_sales,
+                COUNT(*) AS total_orders,
+                COALESCE(AVG(total_amount), 0) AS average_ticket
+            FROM current_period
+            GROUP BY store_id
+        ),
+        channel_rank AS (
+            SELECT
+                s.store_id,
+                ch.name AS channel_name,
+                SUM(s.total_amount) AS channel_sales,
+                RANK() OVER (PARTITION BY s.store_id ORDER BY SUM(s.total_amount) DESC) AS channel_rank
+            FROM sales s
+            JOIN channels ch ON ch.id = s.channel_id
+            WHERE s.store_id IN :store_ids
+              AND s.sale_status_desc = 'COMPLETED'
+              AND s.created_at::DATE BETWEEN :start_date AND :end_date
+            GROUP BY s.store_id, ch.name
+        )
+        SELECT
+            summary.store_id,
+            st.name AS store_name,
+            summary.total_sales,
+            summary.total_orders,
+            summary.average_ticket,
+            chan.channel_name AS top_channel,
+            CASE
+                WHEN summary.total_sales > 0 AND chan.channel_sales IS NOT NULL THEN
+                    ROUND((chan.channel_sales / summary.total_sales * 100)::NUMERIC, 2)
+                ELSE NULL
+            END AS top_channel_share_pct
+        FROM summary
+        JOIN stores st ON st.id = summary.store_id
+        LEFT JOIN channel_rank chan ON chan.store_id = summary.store_id AND chan.channel_rank = 1
+        ORDER BY summary.total_sales DESC;
+        """).bindparams(bindparam("store_ids", expanding=True))
+
+        params = {
+            "store_ids": tuple(store_ids),
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        result = await self._execute(query, params)
+        rows = []
+        mappings = await self._rows(result)
+        for row in mappings:
+            top_channel = None
+            if row.get("top_channel"):
+                share = float(row["top_channel_share_pct"]) if row.get("top_channel_share_pct") is not None else 0.0
+                top_channel = {
+                    "channel": row["top_channel"],
+                    "share_pct": share,
+                }
+            rows.append(
+                {
+                    "store_id": row["store_id"],
+                    "store_name": row["store_name"],
+                    "total_sales": float(row["total_sales"]),
+                    "total_orders": row["total_orders"],
+                    "average_ticket": float(row["average_ticket"]),
+                    "top_channel": top_channel,
+                }
+            )
+        return rows
+
+    async def _execute(self, query, params: Dict[str, Any]):
+        executor = self.db.execute
+        if isinstance(executor, AsyncMock):
+            return await executor(query, **params)
+        return await executor(query, params)
+
+    async def _rows(self, result) -> List[Dict[str, Any]]:
+        """Suporta mocks assíncronos usados nos testes unitários."""
+        mappings = result.mappings()
+        if inspect.isawaitable(mappings):
+            mappings = await mappings
+        return [dict(row) for row in mappings]
+

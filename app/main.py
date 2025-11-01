@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.v1.api_v1 import api_router
 
 app = FastAPI(
     title="Nola Analytics API",
     description="Plataforma de analytics customizável para donos de restaurantes",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # ⚠️ CORS deve ser o PRIMEIRO middleware
