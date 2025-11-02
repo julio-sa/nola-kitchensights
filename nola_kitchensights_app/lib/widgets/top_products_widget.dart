@@ -23,13 +23,11 @@ class TopProductsWidget extends ConsumerStatefulWidget {
 }
 
 class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
-  // filtros atuais
   String _channel = 'iFood';
-  int _dayOfWeek = DateTime.now().weekday; // 1=seg ... 7=dom
+  int _dayOfWeek = DateTime.now().weekday;
   int _hourStart = 0;
   int _hourEnd = 23;
 
-  // helper pra exibir dia
   String get _dayLabel {
     const dias = {
       1: 'Segunda',
@@ -65,7 +63,6 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
           ),
           error: (err, _) => Text('Erro ao carregar produtos: $err'),
           data: (top) {
-            // insight automático
             final hasCritical = top.products.any(
               (p) => (p.weekOverWeekChangePct ?? 0) <= -30,
             );
@@ -75,7 +72,6 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                   )
                 : null;
 
-            // insight de oportunidade: produto com maior % do total
             final opportunityProduct = top.products.isNotEmpty
                 ? top.products.reduce((curr, next) =>
                     (next.percentageOfTotal > curr.percentageOfTotal)
@@ -90,7 +86,7 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                   icon: Icons.star,
                   title: 'Top produtos',
                   subtitle:
-                      'Veja os mais vendidos por canal, dia e horário.',
+                      'Canal: $_channel • Dia: $_dayLabel • ${_hourStart}h–${_hourEnd}h',
                   badge: hasCritical
                       ? const DashboardBadge(
                           label: '🛑 produto caindo',
@@ -113,7 +109,6 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                // chips dos filtros aplicados
                 Wrap(
                   spacing: 8,
                   runSpacing: 4,
@@ -166,7 +161,6 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                       );
                     }).toList(),
                   ),
-                // insights automáticos
                 if (hasCritical && criticalProduct != null) ...[
                   const SizedBox(height: 12),
                   _InsightBox(
@@ -223,9 +217,8 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // canal
                   DropdownButtonFormField<String>(
-                    value: tmpChannel,
+                    initialValue: tmpChannel,
                     decoration: const InputDecoration(
                       labelText: 'Canal',
                       border: OutlineInputBorder(),
@@ -247,9 +240,8 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  // dia da semana
                   DropdownButtonFormField<int>(
-                    value: tmpDay,
+                    initialValue: tmpDay,
                     decoration: const InputDecoration(
                       labelText: 'Dia da semana',
                       border: OutlineInputBorder(),
@@ -270,12 +262,11 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  // horario
                   Row(
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<int>(
-                          value: tmpStart,
+                          initialValue: tmpStart,
                           decoration: const InputDecoration(
                             labelText: 'Hora início',
                             border: OutlineInputBorder(),
@@ -302,7 +293,7 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButtonFormField<int>(
-                          value: tmpEnd,
+                          initialValue: tmpEnd,
                           decoration: const InputDecoration(
                             labelText: 'Hora fim',
                             border: OutlineInputBorder(),

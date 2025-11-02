@@ -8,8 +8,9 @@ import 'package:nola_kitchensights_app/providers/widget_provider.dart'
 import 'package:nola_kitchensights_app/data/params/widget_params.dart'
     as wp;
 import 'package:nola_kitchensights_app/widgets/dashboard_section_header.dart';
+import 'package:nola_kitchensights_app/providers/my_stores_provider.dart';
 
-class RevenueOverviewWidget extends ConsumerWidget {
+class RevenueOverviewWidget extends ConsumerStatefulWidget {
   final int storeId;
   final DateTime startDate;
   final DateTime endDate;
@@ -22,11 +23,34 @@ class RevenueOverviewWidget extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RevenueOverviewWidget> createState() =>
+      _RevenueOverviewWidgetState();
+}
+
+class _RevenueOverviewWidgetState
+    extends ConsumerState<RevenueOverviewWidget> {
+  late int _currentStoreId;
+  DateTimeRange? _currentRange;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentStoreId = widget.storeId;
+    _currentRange = DateTimeRange(
+      start: widget.startDate,
+      end: widget.endDate,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // aqui é ConsumerState -> usa ref direto
+    final storesAsync = ref.watch(myStoresProvider);
+
     final params = wp.RevenueOverviewParams(
-      storeId: storeId,
-      startDate: startDate,
-      endDate: endDate,
+      storeId: _currentStoreId,
+      startDate: _currentRange?.start ?? widget.startDate,
+      endDate: _currentRange?.end ?? widget.endDate,
     );
 
     final overviewFuture = ref.watch(revenueOverviewProvider(params));
@@ -41,14 +65,29 @@ class RevenueOverviewWidget extends ConsumerWidget {
           ),
           error: (err, _) => Text('Erro ao carregar overview: $err'),
           data: (overview) {
-            final realStart = overview.startDate ?? startDate;
-            final realEnd = overview.endDate ?? endDate;
+            final realStart = overview.startDate ??
+                (_currentRange?.start ?? widget.startDate);
+            final realEnd =
+                overview.endDate ?? (_currentRange?.end ?? widget.endDate);
 
             final salesDrop = overview.salesChangePct < -10;
             final lowShareChannels = overview.topChannels
                 .where((c) => c.sharePct < 10)
                 .map((c) => c.channel)
                 .toList();
+
+            // nome amigável da loja
+            final storeName = storesAsync.maybeWhen(
+              data: (stores) {
+                final found =
+                    stores.where((s) => s.id == _currentStoreId).toList();
+                if (found.isNotEmpty) {
+                  return found.first.name;
+                }
+                return 'Loja $_currentStoreId';
+              },
+              orElse: () => 'Loja $_currentStoreId',
+            );
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,7 +96,7 @@ class RevenueOverviewWidget extends ConsumerWidget {
                   icon: Icons.attach_money,
                   title: 'Faturamento',
                   subtitle:
-                      'Período ${_formatDate(realStart)} - ${_formatDate(realEnd)}',
+                      '$storeName • ${_formatDate(realStart)} - ${_formatDate(realEnd)}',
                   badge: salesDrop
                       ? const DashboardBadge(
                           label: '🛑 queda > 10%',
@@ -73,9 +112,11 @@ class RevenueOverviewWidget extends ConsumerWidget {
                               icon: Icons.trending_up,
                             )
                           : null),
+                  // mesmo ícone do Top Products
                   trailing: IconButton(
-                    icon: const Icon(Icons.more_horiz),
-                    onPressed: () {},
+                    icon: const Icon(Icons.tune),
+                    tooltip: 'Filtrar período / loja',
+                    onPressed: () => _openFilters(storesAsync),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -120,7 +161,8 @@ class RevenueOverviewWidget extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(channel.channel),
                                 Text('${channel.sharePct.toStringAsFixed(1)}%'),
@@ -141,7 +183,7 @@ class RevenueOverviewWidget extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      'Insight: faturamento caiu mais de 10%. Verifique promoções / exposição em: ${lowShareChannels.join(', ')}.',
+                      'Insight: faturamento caiu mais de 10%. Reforçar promoções/exposição em: ${lowShareChannels.join(', ')}.',
                       style: const TextStyle(
                         color: Color(0xFFC62828),
                         fontWeight: FontWeight.w500,
@@ -154,6 +196,123 @@ class RevenueOverviewWidget extends ConsumerWidget {
           },
         ),
       ),
+    );
+  }
+
+  Future<void> _openFilters(
+      AsyncValue<List<KitchenStoreRef>> storesAsync) async {
+    // se ainda está carregando as lojas, não abre
+    if (!storesAsync.hasValue) return;
+    final stores = storesAsync.value!;
+
+    int tmpStore = _currentStoreId;
+    DateTimeRange tmpRange = _currentRange ??
+        DateTimeRange(start: widget.startDate, end: widget.endDate);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                left: 16,
+                right: 16,
+                top: 8,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Filtro de faturamento',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<int>(
+                    // aqui o Flutter reclamou do value -> usar initialValue
+                    initialValue: tmpStore,
+                    decoration: const InputDecoration(
+                      labelText: 'Loja',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: stores
+                        .map(
+                          (s) => DropdownMenuItem(
+                            value: s.id,
+                            child: Text(s.name),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        setModalState(() => tmpStore = v);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final picked = await showDateRangePicker(
+                              context: ctx,
+                              firstDate: DateTime(DateTime.now().year - 1),
+                              lastDate: DateTime(DateTime.now().year + 1),
+                              initialDateRange: tmpRange,
+                            );
+                            if (picked != null) {
+                              setModalState(() {
+                                tmpRange = picked;
+                              });
+                            }
+                          },
+                          icon: const Icon(Icons.date_range),
+                          label: Text(
+                            '${_formatDate(tmpRange.start)} - ${_formatDate(tmpRange.end)}',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('Cancelar'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _currentStoreId = tmpStore;
+                              _currentRange = tmpRange;
+                            });
+                            Navigator.of(ctx).pop();
+                          },
+                          icon: const Icon(Icons.check),
+                          label: const Text('Aplicar'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -176,8 +335,9 @@ class _MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final formatted =
-        currency ? 'R\$ ${value.toStringAsFixed(2)}' : value.toStringAsFixed(0);
+    final formatted = currency
+        ? 'R\$ ${value.toStringAsFixed(2)}'
+        : value.toStringAsFixed(0);
     final variationText = variation == null
         ? null
         : '${variation! >= 0 ? '↑' : '↓'} ${variation!.abs().toStringAsFixed(1)}%';

@@ -1,27 +1,24 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'screens/login_screen.dart';
+
+import 'theme/app_theme.dart';
+import 'pages/dashboard_page.dart';
 
 void main() {
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: NolaKitchenSightsApp()));
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class NolaKitchenSightsApp extends StatelessWidget {
+  const NolaKitchenSightsApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Nola KitchenSights',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-      ),
-      home: const LoginScreen(),
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      home: const DashboardPage(),
     );
   }
 }

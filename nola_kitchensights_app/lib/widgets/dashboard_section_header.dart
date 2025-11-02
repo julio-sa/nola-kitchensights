@@ -75,7 +75,8 @@ class DashboardSectionHeader extends StatelessWidget {
       children: [
         CircleAvatar(
           radius: 18,
-          backgroundColor: primary.withOpacity(0.08),
+          // aqui trocamos o withOpacity pra withValues pra não dar warning
+          backgroundColor: primary.withValues(alpha: 0.08),
           child: Icon(
             icon,
             color: primary,
@@ -106,7 +107,8 @@ class DashboardSectionHeader extends StatelessWidget {
                 Text(
                   subtitle!,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.textTheme.bodySmall?.color?.withOpacity(0.65),
+                    color: (theme.textTheme.bodySmall?.color ?? Colors.black)
+                        .withValues(alpha: 0.65),
                   ),
                 ),
               ],
