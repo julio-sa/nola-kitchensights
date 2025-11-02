@@ -1,59 +1,13 @@
-class RevenueTopChannel {
-  final String channel;
-  final double totalSales;
-  final double sharePct;
-
-  RevenueTopChannel({
-    required this.channel,
-    required this.totalSales,
-    required this.sharePct,
-  });
-
-  factory RevenueTopChannel.fromJson(Map<String, dynamic> json) {
-    return RevenueTopChannel(
-      channel: json['channel'] as String,
-      totalSales: (json['total_sales'] as num).toDouble(),
-      sharePct: (json['share_pct'] as num).toDouble(),
-    );
-  }
-}
-
-class RevenueDailyPoint {
-  final DateTime date;
-  final double totalSales;
-  final int totalOrders;
-
-  RevenueDailyPoint({
-    required this.date,
-    required this.totalSales,
-    required this.totalOrders,
-  });
-
-  factory RevenueDailyPoint.fromJson(Map<String, dynamic> json) {
-    return RevenueDailyPoint(
-      date: DateTime.parse(json['sale_date'] as String),
-      totalSales: (json['total_sales'] as num).toDouble(),
-      totalOrders: json['total_orders'] as int,
-    );
-  }
-}
-
 class RevenueOverviewResponse {
-  final int storeId;
-  final DateTime startDate;
-  final DateTime endDate;
   final double totalSales;
   final int totalOrders;
   final double averageTicket;
   final double salesChangePct;
   final double ordersChangePct;
-  final List<RevenueTopChannel> topChannels;
-  final List<RevenueDailyPoint> dailyBreakdown;
+  final List<TopChannel> topChannels;
+  final List<DailyBreakdown> dailyBreakdown;
 
-  RevenueOverviewResponse({
-    required this.storeId,
-    required this.startDate,
-    required this.endDate,
+  const RevenueOverviewResponse({
     required this.totalSales,
     required this.totalOrders,
     required this.averageTicket,
@@ -65,20 +19,71 @@ class RevenueOverviewResponse {
 
   factory RevenueOverviewResponse.fromJson(Map<String, dynamic> json) {
     return RevenueOverviewResponse(
-      storeId: json['store_id'] as int,
-      startDate: DateTime.parse(json['start_date'] as String),
-      endDate: DateTime.parse(json['end_date'] as String),
-      totalSales: (json['total_sales'] as num).toDouble(),
-      totalOrders: json['total_orders'] as int,
-      averageTicket: (json['average_ticket'] as num).toDouble(),
-      salesChangePct: (json['sales_change_pct'] as num).toDouble(),
-      ordersChangePct: (json['orders_change_pct'] as num).toDouble(),
-      topChannels: (json['top_channels'] as List)
-          .map((e) => RevenueTopChannel.fromJson(e as Map<String, dynamic>))
+      totalSales: _toDouble(json['total_sales'] ?? json['totalSales'] ?? 0),
+      totalOrders: (json['total_orders'] ?? json['totalOrders'] ?? 0) as int,
+      averageTicket:
+          _toDouble(json['average_ticket'] ?? json['averageTicket'] ?? 0),
+      salesChangePct:
+          _toDouble(json['sales_change_pct'] ?? json['salesChangePct'] ?? 0),
+      ordersChangePct:
+          _toDouble(json['orders_change_pct'] ?? json['ordersChangePct'] ?? 0),
+      topChannels: (json['top_channels'] ?? json['topChannels'] ?? [])
+          .map<TopChannel>(
+              (e) => TopChannel.fromJson(e as Map<String, dynamic>))
           .toList(),
-      dailyBreakdown: (json['daily_breakdown'] as List)
-          .map((e) => RevenueDailyPoint.fromJson(e as Map<String, dynamic>))
+      dailyBreakdown: (json['daily_breakdown'] ?? json['dailyBreakdown'] ?? [])
+          .map<DailyBreakdown>(
+              (e) => DailyBreakdown.fromJson(e as Map<String, dynamic>))
           .toList(),
+    );
+  }
+
+  static double _toDouble(Object? v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0;
+  }
+}
+
+class TopChannel {
+  final String channel;
+  final double totalSales;
+  final double sharePct;
+
+  const TopChannel({
+    required this.channel,
+    required this.totalSales,
+    required this.sharePct,
+  });
+
+  factory TopChannel.fromJson(Map<String, dynamic> json) {
+    return TopChannel(
+      channel: (json['channel'] ?? json['name'] ?? '') as String,
+      totalSales: RevenueOverviewResponse._toDouble(
+          json['total_sales'] ?? json['totalSales'] ?? 0),
+      sharePct: RevenueOverviewResponse._toDouble(
+          json['share_pct'] ?? json['sharePct'] ?? 0),
+    );
+  }
+}
+
+class DailyBreakdown {
+  final String saleDate;
+  final double totalSales;
+  final int totalOrders;
+
+  const DailyBreakdown({
+    required this.saleDate,
+    required this.totalSales,
+    required this.totalOrders,
+  });
+
+  factory DailyBreakdown.fromJson(Map<String, dynamic> json) {
+    return DailyBreakdown(
+      saleDate: (json['sale_date'] ?? json['saleDate'] ?? '') as String,
+      totalSales: RevenueOverviewResponse._toDouble(
+          json['total_sales'] ?? json['totalSales'] ?? 0),
+      totalOrders: (json['total_orders'] ?? json['totalOrders'] ?? 0) as int,
     );
   }
 }

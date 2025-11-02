@@ -1,4 +1,33 @@
-class StoreComparisonStore {
+class StoreComparisonResponse {
+  final List<StoreComparisonItem> stores;
+
+  const StoreComparisonResponse({required this.stores});
+
+  factory StoreComparisonResponse.fromJson(dynamic json) {
+    if (json is List) {
+      return StoreComparisonResponse(
+        stores: json
+            .map<StoreComparisonItem>(
+                (e) => StoreComparisonItem.fromJson(e))
+            .toList(),
+      );
+    }
+
+    if (json is Map<String, dynamic>) {
+      final list = (json['stores'] ?? json['data'] ?? []) as List;
+      return StoreComparisonResponse(
+        stores: list
+            .map<StoreComparisonItem>(
+                (e) => StoreComparisonItem.fromJson(e))
+            .toList(),
+      );
+    }
+
+    return const StoreComparisonResponse(stores: []);
+  }
+}
+
+class StoreComparisonItem {
   final int storeId;
   final String storeName;
   final double totalSales;
@@ -8,7 +37,7 @@ class StoreComparisonStore {
   final String? topChannel;
   final double? topChannelSharePct;
 
-  StoreComparisonStore({
+  const StoreComparisonItem({
     required this.storeId,
     required this.storeName,
     required this.totalSales,
@@ -19,38 +48,33 @@ class StoreComparisonStore {
     this.topChannelSharePct,
   });
 
-  factory StoreComparisonStore.fromJson(Map<String, dynamic> json) {
-    return StoreComparisonStore(
-      storeId: json['store_id'] as int,
-      storeName: json['store_name'] as String,
-      totalSales: (json['total_sales'] as num).toDouble(),
-      totalOrders: json['total_orders'] as int,
-      averageTicket: (json['average_ticket'] as num).toDouble(),
-      salesChangePct: (json['sales_change_pct'] as num).toDouble(),
-      topChannel: json['top_channel'] as String?,
-      topChannelSharePct: (json['top_channel_share_pct'] as num?)?.toDouble(),
+  factory StoreComparisonItem.fromJson(Map<String, dynamic> json) {
+    return StoreComparisonItem(
+      storeId: (json['store_id'] ?? json['storeId'] ?? 0) as int,
+      storeName: (json['store_name'] ?? json['storeName'] ?? '') as String,
+      totalSales:
+          _toDouble(json['total_sales'] ?? json['totalSales'] ?? 0),
+      totalOrders:
+          ((json['total_orders'] ?? json['totalOrders'] ?? 0) as num).toInt(),
+      averageTicket:
+          _toDouble(json['average_ticket'] ?? json['averageTicket'] ?? 0),
+      salesChangePct:
+          _toDouble(json['sales_change_pct'] ?? json['salesChangePct'] ?? 0),
+      topChannel: (json['top_channel'] ?? json['topChannel']) as String?,
+      topChannelSharePct: _toNullableDouble(
+          json['top_channel_share_pct'] ?? json['topChannelSharePct']),
     );
   }
-}
 
-class StoreComparisonResponse {
-  final DateTime periodStart;
-  final DateTime periodEnd;
-  final List<StoreComparisonStore> stores;
+  static double _toDouble(Object? v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0;
+  }
 
-  StoreComparisonResponse({
-    required this.periodStart,
-    required this.periodEnd,
-    required this.stores,
-  });
-
-  factory StoreComparisonResponse.fromJson(Map<String, dynamic> json) {
-    return StoreComparisonResponse(
-      periodStart: DateTime.parse(json['period_start'] as String),
-      periodEnd: DateTime.parse(json['period_end'] as String),
-      stores: (json['stores'] as List)
-          .map((e) => StoreComparisonStore.fromJson(e as Map<String, dynamic>))
-          .toList(),
-    );
+  static double? _toNullableDouble(Object? v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString());
   }
 }

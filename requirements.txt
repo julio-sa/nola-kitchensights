@@ -4,5 +4,11 @@ sqlalchemy==2.0.44
 asyncpg==0.29.0
 python-dotenv==1.0.1
 pydantic==2.10.0
+
+# extras úteis
+python-multipart==0.0.20
+alembic==1.14.0
+
+# testes
 pytest==8.4.2
 pytest-asyncio==1.2.0

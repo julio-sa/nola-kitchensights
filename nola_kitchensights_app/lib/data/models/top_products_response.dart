@@ -1,56 +1,77 @@
 class TopProductsResponse {
-  final int storeId;
-  final String channel;
-  final int dayOfWeek;
-  final int hourStart;
-  final int hourEnd;
-  final List<TopProductItem> products;
+  final List<TopProduct> products;
 
-  TopProductsResponse({
-    required this.storeId,
-    required this.channel,
-    required this.dayOfWeek,
-    required this.hourStart,
-    required this.hourEnd,
-    required this.products,
-  });
+  const TopProductsResponse({required this.products});
 
-  factory TopProductsResponse.fromJson(Map<String, dynamic> json) {
-    return TopProductsResponse(
-      storeId: json['store_id'],
-      channel: json['channel'],
-      dayOfWeek: json['day_of_week'],
-      hourStart: json['hour_start'],
-      hourEnd: json['hour_end'],
-      products: (json['products'] as List)
-          .map((e) => TopProductItem.fromJson(e))
-          .toList(),
-    );
+  factory TopProductsResponse.fromJson(dynamic json) {
+    // o backend pode mandar direto a lista ([]) ou embrulhado { "products": [] }
+    if (json is List) {
+      return TopProductsResponse(
+        products: json
+            .map<TopProduct>((e) => TopProduct.fromJson(e))
+            .toList(growable: false),
+      );
+    }
+
+    if (json is Map<String, dynamic>) {
+      final list = (json['products'] ?? json['data'] ?? []) as List;
+      return TopProductsResponse(
+        products:
+            list.map<TopProduct>((e) => TopProduct.fromJson(e)).toList(),
+      );
+    }
+
+    return const TopProductsResponse(products: []);
   }
 }
 
-class TopProductItem {
+class TopProduct {
   final String productName;
   final int totalQuantitySold;
   final double totalRevenue;
-  final double percentageOfTotal;
   final double? weekOverWeekChangePct;
+  final double? pctOfTotal;
 
-  TopProductItem({
+  const TopProduct({
     required this.productName,
     required this.totalQuantitySold,
     required this.totalRevenue,
-    required this.percentageOfTotal,
     this.weekOverWeekChangePct,
+    this.pctOfTotal,
   });
 
-  factory TopProductItem.fromJson(Map<String, dynamic> json) {
-    return TopProductItem(
-      productName: json['product_name'],
-      totalQuantitySold: json['total_quantity_sold'],
-      totalRevenue: json['total_revenue'].toDouble(),
-      percentageOfTotal: json['percentage_of_total'].toDouble(),
-      weekOverWeekChangePct: json['week_over_week_change_pct']?.toDouble(),
+  factory TopProduct.fromJson(Map<String, dynamic> json) {
+    return TopProduct(
+      productName: (json['product_name'] ??
+              json['productName'] ??
+              json['name'] ??
+              '')
+          as String,
+      totalQuantitySold:
+          ((json['total_quantity'] ??
+                      json['totalQuantity'] ??
+                      json['total_quantity_sold'] ??
+                      json['totalQuantitySold'] ??
+                      0) as num)
+              .toInt(),
+      totalRevenue: _toDouble(
+          json['total_revenue'] ?? json['totalRevenue'] ?? json['revenue']),
+      weekOverWeekChangePct: _toNullableDouble(
+          json['wow_change_pct'] ?? json['weekOverWeekChangePct']),
+      pctOfTotal:
+          _toNullableDouble(json['pct_of_total'] ?? json['pctOfTotal']),
     );
+  }
+
+  static double _toDouble(Object? v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0;
+  }
+
+  static double? _toNullableDouble(Object? v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString());
   }
 }

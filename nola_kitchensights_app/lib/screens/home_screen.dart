@@ -61,7 +61,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await Clipboard.setData(ClipboardData(text: csv));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Relatório gerado e copiado para a área de transferência.')), 
+          const SnackBar(content: Text('Relatório gerado e copiado para a área de transferência.')),
         );
       }
     } catch (err) {
@@ -205,5 +205,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  String _formatDate(DateTime date) => '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
+  String _formatDate(DateTime date) =>
+      '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
 }

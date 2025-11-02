@@ -10,19 +10,25 @@ import '../data/models/top_products_response.dart';
 class ApiService {
   static Future<TopProductsResponse> fetchTopProducts({
     required int storeId,
-    required String channel,
-    required int dayOfWeek,
-    required int hourStart,
-    required int hourEnd,
+    String? channel,
+    int? dayOfWeek,
+    int? hourStart,
+    int? hourEnd,
+    DateTime? startDate,
+    DateTime? endDate,
   }) async {
-    final url = Uri.parse('${ApiConstants.baseUrl}/widgets/top-products')
-        .replace(queryParameters: {
+    final qp = <String, String>{
       'store_id': storeId.toString(),
-      'channel': channel,
-      'day_of_week': dayOfWeek.toString(),
-      'hour_start': hourStart.toString(),
-      'hour_end': hourEnd.toString(),
-    });
+    };
+    if (channel != null) qp['channel'] = channel;
+    if (dayOfWeek != null) qp['day_of_week'] = dayOfWeek.toString();
+    if (hourStart != null) qp['hour_start'] = hourStart.toString();
+    if (hourEnd != null) qp['hour_end'] = hourEnd.toString();
+    if (startDate != null) qp['start_date'] = startDate.toIso8601String().split('T').first;
+    if (endDate != null) qp['end_date'] = endDate.toIso8601String().split('T').first;
+
+    final url = Uri.parse('${ApiConstants.baseUrl}/widgets/top-products')
+        .replace(queryParameters: qp);
 
     final response = await http.get(url);
     if (response.statusCode == 200) {
@@ -34,9 +40,15 @@ class ApiService {
 
   static Future<DeliveryHeatmapResponse> fetchDeliveryHeatmap({
     required int storeId,
+    DateTime? startDate,
+    DateTime? endDate,
   }) async {
+    final qp = <String, String>{'store_id': storeId.toString()};
+    if (startDate != null) qp['start_date'] = startDate.toIso8601String().split('T').first;
+    if (endDate != null) qp['end_date'] = endDate.toIso8601String().split('T').first;
+
     final url = Uri.parse('${ApiConstants.baseUrl}/widgets/delivery-heatmap')
-        .replace(queryParameters: {'store_id': storeId.toString()});
+        .replace(queryParameters: qp);
 
     final response = await http.get(url);
     if (response.statusCode == 200) {
@@ -84,17 +96,18 @@ class ApiService {
   static Future<StoreComparisonResponse> fetchStoreComparison({
     required int storeA,
     required int storeB,
-    required DateTime startDate,
-    required DateTime endDate,
+    DateTime? startDate,
+    DateTime? endDate,
   }) async {
-    final url = Uri.parse('${ApiConstants.baseUrl}/widgets/store-comparison').replace(
-      queryParameters: {
-        'store_a_id': storeA.toString(),
-        'store_b_id': storeB.toString(),
-        'start_date': startDate.toIso8601String().split('T').first,
-        'end_date': endDate.toIso8601String().split('T').first,
-      },
-    );
+    final qp = <String, String>{
+      'store_a_id': storeA.toString(),
+      'store_b_id': storeB.toString(),
+    };
+    if (startDate != null) qp['start_date'] = startDate.toIso8601String().split('T').first;
+    if (endDate != null) qp['end_date'] = endDate.toIso8601String().split('T').first;
+
+    final url = Uri.parse('${ApiConstants.baseUrl}/widgets/store-comparison')
+        .replace(queryParameters: qp);
 
     final response = await http.get(url);
     if (response.statusCode == 200) {

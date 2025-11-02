@@ -1,169 +1,428 @@
+// lib/widgets/top_products_widget.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../providers/widget_provider.dart';
+import 'package:nola_kitchensights_app/providers/widget_provider.dart'
+    show topProductsProvider;
+import 'package:nola_kitchensights_app/data/params/widget_params.dart'
+    as wp;
+import 'package:nola_kitchensights_app/widgets/dashboard_section_header.dart';
 
 class TopProductsWidget extends ConsumerStatefulWidget {
   final int storeId;
 
-  const TopProductsWidget({super.key, required this.storeId});
+  const TopProductsWidget({
+    super.key,
+    required this.storeId,
+  });
 
   @override
-  ConsumerState<TopProductsWidget> createState() => _TopProductsWidgetState();
+  ConsumerState<TopProductsWidget> createState() =>
+      _TopProductsWidgetState();
 }
 
 class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
-  final List<String> _channels = const ['iFood', 'Rappi', 'Presencial', 'WhatsApp'];
-  final Map<int, String> _weekdays = const {
-    1: 'Segunda',
-    2: 'Terça',
-    3: 'Quarta',
-    4: 'Quinta',
-    5: 'Sexta',
-    6: 'Sábado',
-    7: 'Domingo',
-  };
-
-  String _selectedChannel = 'iFood';
-  int _selectedDay = 5;
-  int _hourStart = 18;
+  // filtros atuais
+  String _channel = 'iFood';
+  int _dayOfWeek = DateTime.now().weekday; // 1=seg ... 7=dom
+  int _hourStart = 0;
   int _hourEnd = 23;
 
-  void _updateHourStart(int? value) {
-    if (value == null) return;
-    setState(() {
-      _hourStart = value;
-      if (_hourStart > _hourEnd) {
-        _hourEnd = _hourStart;
-      }
-    });
-  }
-
-  void _updateHourEnd(int? value) {
-    if (value == null) return;
-    setState(() {
-      _hourEnd = value;
-      if (_hourEnd < _hourStart) {
-        _hourStart = _hourEnd;
-      }
-    });
+  // helper pra exibir dia
+  String get _dayLabel {
+    const dias = {
+      1: 'Segunda',
+      2: 'Terça',
+      3: 'Quarta',
+      4: 'Quinta',
+      5: 'Sexta',
+      6: 'Sábado',
+      7: 'Domingo',
+    };
+    return dias[_dayOfWeek] ?? '—';
   }
 
   @override
   Widget build(BuildContext context) {
-    final filterArgs = {
-      'store_id': widget.storeId,
-      'channel': _selectedChannel,
-      'day_of_week': _selectedDay,
-      'hour_start': _hourStart,
-      'hour_end': _hourEnd,
-    };
-    final productsFuture = ref.watch(topProductsProvider(filterArgs));
+    final params = wp.TopProductsParams(
+      storeId: widget.storeId,
+      channel: _channel,
+      dayOfWeek: _dayOfWeek,
+      hourStart: _hourStart,
+      hourEnd: _hourEnd,
+    );
+
+    final productsFuture = ref.watch(topProductsProvider(params));
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: productsFuture.when(
+          loading: () => const SizedBox(
+            height: 140,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (err, _) => Text('Erro ao carregar produtos: $err'),
+          data: (top) {
+            // insight automático
+            final hasCritical = top.products.any(
+              (p) => (p.weekOverWeekChangePct ?? 0) <= -30,
+            );
+            final criticalProduct = hasCritical
+                ? top.products.firstWhere(
+                    (p) => (p.weekOverWeekChangePct ?? 0) <= -30,
+                  )
+                : null;
+
+            // insight de oportunidade: produto com maior % do total
+            final opportunityProduct = top.products.isNotEmpty
+                ? top.products.reduce((curr, next) =>
+                    (next.percentageOfTotal > curr.percentageOfTotal)
+                        ? next
+                        : curr)
+                : null;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DashboardSectionHeader(
+                  icon: Icons.star,
+                  title: 'Top produtos',
+                  subtitle:
+                      'Veja os mais vendidos por canal, dia e horário.',
+                  badge: hasCritical
+                      ? const DashboardBadge(
+                          label: '🛑 produto caindo',
+                          background: Color(0xFFFFF3E0),
+                          foreground: Color(0xFFE65100),
+                          icon: Icons.trending_down,
+                        )
+                      : (opportunityProduct != null
+                          ? const DashboardBadge(
+                              label: '⚡ oportunidade',
+                              background: Color(0xFFE3F2FD),
+                              foreground: Color(0xFF1565C0),
+                              icon: Icons.campaign,
+                            )
+                          : null),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.tune),
+                    tooltip: 'Filtros',
+                    onPressed: () => _openFilters(context),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // chips dos filtros aplicados
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Chip(
+                      label: Text('Canal: $_channel'),
+                      avatar: const Icon(Icons.campaign, size: 16),
+                    ),
+                    Chip(
+                      label: Text('Dia: $_dayLabel'),
+                      avatar: const Icon(Icons.calendar_today, size: 16),
+                    ),
+                    Chip(
+                      label: Text('Hora: ${_hourStart}h - ${_hourEnd}h'),
+                      avatar: const Icon(Icons.schedule, size: 16),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (top.products.isEmpty)
+                  const Text('Sem produtos nesse filtro.')
+                else
+                  Column(
+                    children: top.products.take(5).map((p) {
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(p.productName),
+                        subtitle: Text(
+                          'Qtd: ${p.totalQuantitySold} • Faturou: R\$ ${p.totalRevenue.toStringAsFixed(2)}',
+                        ),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('${p.percentageOfTotal.toStringAsFixed(1)}%'),
+                            if (p.weekOverWeekChangePct != null)
+                              Text(
+                                '${p.weekOverWeekChangePct! >= 0 ? '↑' : '↓'} ${p.weekOverWeekChangePct!.abs().toStringAsFixed(1)}%',
+                                style: TextStyle(
+                                  color: p.weekOverWeekChangePct! >= 0
+                                      ? Colors.green
+                                      : Colors.red,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                // insights automáticos
+                if (hasCritical && criticalProduct != null) ...[
+                  const SizedBox(height: 12),
+                  _InsightBox(
+                    title: 'Produto perdendo tração',
+                    message:
+                        '${criticalProduct.productName} vendeu bem nesse horário na semana passada, mas caiu >30% agora. Sugerir destaque ou promoção nesse mesmo horário.',
+                    tone: InsightTone.danger,
+                  ),
+                ] else if (opportunityProduct != null) ...[
+                  const SizedBox(height: 12),
+                  _InsightBox(
+                    title: 'Produto com potencial',
+                    message:
+                        '${opportunityProduct.productName} representa ${opportunityProduct.percentageOfTotal.toStringAsFixed(1)}% do faturamento no filtro atual. Vale testar campanha nesse canal/dia/horário.',
+                    tone: InsightTone.opportunity,
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openFilters(BuildContext context) async {
+    String tmpChannel = _channel;
+    int tmpDay = _dayOfWeek;
+    int tmpStart = _hourStart;
+    int tmpEnd = _hourEnd;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                left: 16,
+                right: 16,
+                top: 8,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Filtros de Top produtos',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // canal
+                  DropdownButtonFormField<String>(
+                    value: tmpChannel,
+                    decoration: const InputDecoration(
+                      labelText: 'Canal',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'iFood', child: Text('iFood')),
+                      DropdownMenuItem(value: 'Rappi', child: Text('Rappi')),
+                      DropdownMenuItem(
+                          value: 'Uber Eats', child: Text('Uber Eats')),
+                      DropdownMenuItem(
+                          value: 'Presencial', child: Text('Presencial')),
+                      DropdownMenuItem(
+                          value: 'WhatsApp', child: Text('WhatsApp')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) {
+                        setModalState(() => tmpChannel = v);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  // dia da semana
+                  DropdownButtonFormField<int>(
+                    value: tmpDay,
+                    decoration: const InputDecoration(
+                      labelText: 'Dia da semana',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 1, child: Text('Segunda')),
+                      DropdownMenuItem(value: 2, child: Text('Terça')),
+                      DropdownMenuItem(value: 3, child: Text('Quarta')),
+                      DropdownMenuItem(value: 4, child: Text('Quinta')),
+                      DropdownMenuItem(value: 5, child: Text('Sexta')),
+                      DropdownMenuItem(value: 6, child: Text('Sábado')),
+                      DropdownMenuItem(value: 7, child: Text('Domingo')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) {
+                        setModalState(() => tmpDay = v);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  // horario
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          value: tmpStart,
+                          decoration: const InputDecoration(
+                            labelText: 'Hora início',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: List.generate(
+                            24,
+                            (i) => DropdownMenuItem(
+                              value: i,
+                              child: Text('${i.toString().padLeft(2, '0')}:00'),
+                            ),
+                          ),
+                          onChanged: (v) {
+                            if (v != null) {
+                              setModalState(() {
+                                tmpStart = v;
+                                if (tmpEnd < tmpStart) {
+                                  tmpEnd = tmpStart;
+                                }
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          value: tmpEnd,
+                          decoration: const InputDecoration(
+                            labelText: 'Hora fim',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: List.generate(
+                            24,
+                            (i) => DropdownMenuItem(
+                              value: i,
+                              child: Text('${i.toString().padLeft(2, '0')}:00'),
+                            ),
+                          ),
+                          onChanged: (v) {
+                            if (v != null) {
+                              setModalState(() {
+                                tmpEnd = v;
+                                if (tmpEnd < tmpStart) {
+                                  tmpStart = tmpEnd;
+                                }
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('Cancelar'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _channel = tmpChannel;
+                              _dayOfWeek = tmpDay;
+                              _hourStart = tmpStart;
+                              _hourEnd = tmpEnd;
+                            });
+                            Navigator.of(ctx).pop();
+                          },
+                          icon: const Icon(Icons.check),
+                          label: const Text('Aplicar'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+enum InsightTone { danger, opportunity }
+
+class _InsightBox extends StatelessWidget {
+  final String title;
+  final String message;
+  final InsightTone tone;
+
+  const _InsightBox({
+    required this.title,
+    required this.message,
+    required this.tone,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDanger = tone == InsightTone.danger;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDanger ? const Color(0xFFFFF3E0) : const Color(0xFFE3F2FD),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            isDanger ? Icons.warning_amber_rounded : Icons.lightbulb_outline,
+            color: isDanger ? const Color(0xFFE65100) : const Color(0xFF1565C0),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Produtos que lideram em ${_weekdays[_selectedDay]} ($_selectedChannel)',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  title,
+                  style: TextStyle(
+                    color: isDanger
+                        ? const Color(0xFFE65100)
+                        : const Color(0xFF0D47A1),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                IconButton(
-                  tooltip: 'Atualizar',
-                  onPressed: () => ref.invalidate(topProductsProvider(filterArgs)),
-                  icon: const Icon(Icons.refresh),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: TextStyle(
+                    color: isDanger
+                        ? const Color(0xFFE65100)
+                        : const Color(0xFF0D47A1),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                DropdownButton<String>(
-                  value: _selectedChannel,
-                  items: _channels
-                      .map((channel) => DropdownMenuItem(
-                            value: channel,
-                            child: Text(channel),
-                          ))
-                      .toList(),
-                  onChanged: (value) => setState(() => _selectedChannel = value ?? _selectedChannel),
-                ),
-                DropdownButton<int>(
-                  value: _selectedDay,
-                  items: _weekdays.entries
-                      .map((entry) => DropdownMenuItem(
-                            value: entry.key,
-                            child: Text(entry.value),
-                          ))
-                      .toList(),
-                  onChanged: (value) => setState(() => _selectedDay = value ?? _selectedDay),
-                ),
-                DropdownButton<int>(
-                  value: _hourStart,
-                  items: List.generate(
-                    24,
-                    (index) => DropdownMenuItem(
-                      value: index,
-                      child: Text('${index.toString().padLeft(2, '0')}h'),
-                    ),
-                  ),
-                  onChanged: _updateHourStart,
-                ),
-                DropdownButton<int>(
-                  value: _hourEnd,
-                  items: List.generate(
-                    24,
-                    (index) => DropdownMenuItem(
-                      value: index,
-                      child: Text('${index.toString().padLeft(2, '0')}h'),
-                    ),
-                  ),
-                  onChanged: _updateHourEnd,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            productsFuture.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, _) => Text('Erro: $err'),
-              data: (response) {
-                if (response.products.isEmpty) {
-                  return const Text('Nenhum dado encontrado para o filtro selecionado.');
-                }
-                return Column(
-                  children: response.products.take(10).map((product) {
-                    final trend = product['week_over_week_change_pct'] as double?;
-                    final isPositive = trend != null && trend >= 0;
-                    return ListTile(
-                      dense: true,
-                      title: Text(product['product_name'] as String),
-                      subtitle: Text('${product['total_quantity_sold']} vendidos'),
-                      trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text('R\$ ${(product['total_revenue'] as double).toStringAsFixed(2)}'),
-                          if (trend != null)
-                            Text(
-                              '${isPositive ? '↑' : '↓'} ${trend.abs().toStringAsFixed(1)}%',
-                              style: TextStyle(color: isPositive ? Colors.green : Colors.red),
-                            ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                );
-              },
-            ),
-          ],
-        ),
+          )
+        ],
       ),
     );
   }

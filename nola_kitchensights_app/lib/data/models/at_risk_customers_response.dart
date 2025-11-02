@@ -1,44 +1,50 @@
 class AtRiskCustomersResponse {
-  final int storeId;
   final List<AtRiskCustomer> customers;
 
-  AtRiskCustomersResponse({
-    required this.storeId,
-    required this.customers,
-  });
+  const AtRiskCustomersResponse({required this.customers});
 
-  factory AtRiskCustomersResponse.fromJson(Map<String, dynamic> json) {
-    return AtRiskCustomersResponse(
-      storeId: json['store_id'],
-      customers: (json['customers'] as List)
-          .map((e) => AtRiskCustomer.fromJson(e))
-          .toList(),
-    );
+  factory AtRiskCustomersResponse.fromJson(dynamic json) {
+    if (json is List) {
+      return AtRiskCustomersResponse(
+        customers: json
+            .map<AtRiskCustomer>((e) => AtRiskCustomer.fromJson(e))
+            .toList(),
+      );
+    }
+
+    if (json is Map<String, dynamic>) {
+      final list = (json['customers'] ?? json['data'] ?? []) as List;
+      return AtRiskCustomersResponse(
+        customers:
+            list.map<AtRiskCustomer>((e) => AtRiskCustomer.fromJson(e)).toList(),
+      );
+    }
+
+    return const AtRiskCustomersResponse(customers: []);
   }
 }
 
 class AtRiskCustomer {
   final String customerName;
-  final int customerId;
   final int totalOrders;
-  final DateTime lastOrderDate;
   final int daysSinceLastOrder;
 
-  AtRiskCustomer({
+  const AtRiskCustomer({
     required this.customerName,
-    required this.customerId,
     required this.totalOrders,
-    required this.lastOrderDate,
     required this.daysSinceLastOrder,
   });
 
   factory AtRiskCustomer.fromJson(Map<String, dynamic> json) {
     return AtRiskCustomer(
-      customerName: json['customer_name'],
-      customerId: json['customer_id'],
-      totalOrders: json['total_orders'],
-      lastOrderDate: DateTime.parse(json['last_order_date'].toString()),
-      daysSinceLastOrder: json['days_since_last_order'],
+      customerName:
+          (json['customer_name'] ?? json['customerName'] ?? 'Cliente') as String,
+      totalOrders:
+          ((json['total_orders'] ?? json['totalOrders'] ?? 0) as num).toInt(),
+      daysSinceLastOrder: ((json['days_since_last_order'] ??
+                  json['daysSinceLastOrder'] ??
+                  0) as num)
+              .toInt(),
     );
   }
 }

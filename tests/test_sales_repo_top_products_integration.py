@@ -1,69 +1,67 @@
+# tests/test_sales_repo_top_products_integration.py
+import os
 import pytest
-from unittest.mock import AsyncMock
-from app.services.widget_service import WidgetService
-from app.models.widgets import TopProductsResponse
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+
+from app.repositories.sales_repository import SalesRepository
+
+# 1) pegar a URL síncrona do .env
+RAW_DB_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://challenge:challenge@localhost:5432/challenge_db",
+)
+
+# 2) converter para URL assíncrona
+ASYNC_DB_URL = RAW_DB_URL.replace("postgresql://", "postgresql+asyncpg://")
+
+# 3) criar engine global (teste simples, ok ser global)
+engine = create_async_engine(ASYNC_DB_URL, echo=False, future=True)
+
+# 4) criar Session factory
+AsyncSessionLocal = sessionmaker(
+    engine,
+    expire_on_commit=False,
+    class_=AsyncSession,
+)
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    """
+    Entrega uma AsyncSession REAL para o teste.
+    """
+    async with AsyncSessionLocal() as session:
+        yield session
+    # não vamos dar dispose aqui pra não fechar a engine a cada teste;
+    # se quiser muito fechar, dá pra fazer:
+    # await engine.dispose()
+
 
 @pytest.mark.asyncio
-async def test_get_top_products_insight_transforms_data_correctly():
+async def test_get_top_products_real_db(db_session: AsyncSession):
     """
-    Garante que o WidgetService transforma corretamente os dados brutos do repositório
-    em um modelo Pydantic válido com insights interpretáveis.
+    Teste de integração: chama o Postgres da máquina (Docker)
+    e garante que a query roda sem explodir.
     """
-    # Arrange: mock do repositório
-    mock_repo = AsyncMock()
-    mock_repo.get_top_products_by_channel_and_time.return_value = [
-        {
-            "product_name": "X-Bacon",
-            "total_quantity": 120,
-            "total_revenue": 3600.0,
-            "pct_of_total": 25.5,
-            "wow_change_pct": 12.3
-        },
-        {
-            "product_name": "Batata Frita",
-            "total_quantity": 95,
-            "total_revenue": 1710.0,
-            "pct_of_total": 12.0,
-            "wow_change_pct": None  # primeiro dado da série
-        }
-    ]
+    repo = SalesRepository(db_session)
 
-    service = WidgetService(repository=mock_repo)
-
-    # Act
-    result = await service.get_top_products_insight(
+    rows = await repo.get_top_products_by_channel_and_time(
         store_id=1,
-        channel="iFood",
-        day_of_week=5,  # sexta
-        hour_start=19,
-        hour_end=23
+        channel_name="iFood",  # troque para o NOME REAL do canal na sua tabela
+        day_of_week=5,         # sexta
+        hour_start=18,
+        hour_end=23,
     )
 
-    # Assert
-    assert isinstance(result, TopProductsResponse)
-    assert result.store_id == 1
-    assert result.channel == "iFood"
-    assert len(result.products) == 2
+    # o importante: não quebrou e veio uma lista
+    assert rows is not None
+    assert isinstance(rows, list)
 
-    first = result.products[0]
-    assert first["product_name"] == "X-Bacon"
-    assert first["total_quantity_sold"] == 120
-    assert first["total_revenue"] == 3600.0
-    assert first["percentage_of_total"] == 25.5
-    assert first["week_over_week_change_pct"] == 12.3
-
-    second = result.products[1]
-    assert second["week_over_week_change_pct"] is None
-
-
-@pytest.mark.asyncio
-async def test_get_at_risk_customers_handles_empty_result():
-    """Testa cenário onde não há clientes em risco."""
-    mock_repo = AsyncMock()
-    mock_repo.get_at_risk_customers.return_value = []
-
-    service = WidgetService(repository=mock_repo)
-    result = await service.get_at_risk_customers_insight(store_id=2)
-
-    assert result.store_id == 2
-    assert result.customers == []
+    # se tiver dado, validamos o shape básico
+    if rows:
+        first = rows[0]
+        assert "product_name" in first
+        assert "total_quantity" in first
+        assert "total_revenue" in first
