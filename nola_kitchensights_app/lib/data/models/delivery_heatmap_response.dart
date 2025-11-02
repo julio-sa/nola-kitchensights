@@ -53,7 +53,7 @@ class DeliveryRegion {
         (json['avg_delivery_minutes'] ?? json['avgDeliveryMinutes']) as num?;
 
     final avgMinutes =
-        (minutesField != null ? minutesField.toDouble() : null) ??
+        (minutesField?.toDouble()) ??
             (minutesFromSeconds ?? 0.0);
 
     final p90Seconds =
@@ -61,7 +61,7 @@ class DeliveryRegion {
     final p90MinutesField =
         (json['p90_delivery_minutes'] ?? json['p90DeliveryMinutes']) as num?;
     final p90Minutes =
-        (p90MinutesField != null ? p90MinutesField.toDouble() : null) ??
+        (p90MinutesField?.toDouble()) ??
             (p90Seconds != null ? p90Seconds.toDouble() / 60.0 : null);
 
     return DeliveryRegion(

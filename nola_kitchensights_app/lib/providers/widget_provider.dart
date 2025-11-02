@@ -102,14 +102,6 @@ int _asInt(dynamic v) {
   return int.tryParse(v.toString()) ?? 0;
 }
 
-DateTime _asDateOrNow(dynamic v) {
-  if (v == null) return DateTime.now();
-  if (v is String && v.isNotEmpty) {
-    return DateTime.parse(v);
-  }
-  return DateTime.now();
-}
-
 /// =========================
 /// MODELS
 /// =========================
@@ -211,7 +203,7 @@ class DeliveryRegionInsight {
         (json['avg_delivery_minutes'] ?? json['avgDeliveryMinutes']) as num?;
 
     final avgMinutes =
-        (minutesField != null ? minutesField.toDouble() : null) ??
+        (minutesField?.toDouble()) ??
             (minutesFromSeconds ?? 0.0);
 
     final p90Seconds =
@@ -219,7 +211,7 @@ class DeliveryRegionInsight {
     final p90MinutesField =
         (json['p90_delivery_minutes'] ?? json['p90DeliveryMinutes']) as num?;
     final p90Minutes =
-        (p90MinutesField != null ? p90MinutesField.toDouble() : null) ??
+        (p90MinutesField?.toDouble()) ??
             (p90Seconds != null ? p90Seconds.toDouble() / 60.0 : 0.0);
 
     return DeliveryRegionInsight(

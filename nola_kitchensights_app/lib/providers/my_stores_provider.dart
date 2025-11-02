@@ -15,7 +15,6 @@ class KitchenStoreRef {
 /// Provider que devolve só as lojas da usuária logada (ex: Maria).
 /// HOJE está mockado. Depois é só trocar pelo endpoint real.
 final myStoresProvider = FutureProvider<List<KitchenStoreRef>>((ref) async {
-  // TODO: trocar pelo GET /api/v1/stores/mine ou parecido
   // Mantive nomes plausíveis pros IDs que você já usou (97 etc)
   return const [
     KitchenStoreRef(id: 97, name: 'Nola Centro'),
