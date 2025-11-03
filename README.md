@@ -21,26 +21,26 @@ Nola KitchenSights é uma plataforma de analytics desenhada para donos de restau
 
 ### Backend
 
-# 1) entrar na pasta do backend (se seu backend está na raiz, ignore)
+#### 1) entrar na pasta do backend (se seu backend está na raiz, ignore)
 cd backend   # ou cd .
 
-# 2) criar/ativar venv
+#### 2) criar/ativar venv
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 
-# 3) instalar dependências
+#### 3) instalar dependências
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 4) configurar variáveis (exemplo .env)
-# DB_DSN=postgresql+asyncpg://user:pass@localhost:5432/nola
-# CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:8080,http://localhost:8000
+#### 4) configurar variáveis (exemplo .env)
+#### DB_DSN=postgresql+asyncpg://user:pass@localhost:5432/nola
+#### CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:8080,http://localhost:8000
 
-# 5) rodar API
+#### 5) rodar API
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 6) testar endpoint
-# GET http://localhost:8000/api/v1/widgets/revenue-overview?store_id=1&start_date=2025-10-01&end_date=2025-10-31
+#### 6) testar endpoint
+#### GET http://localhost:8000/api/v1/widgets/revenue-overview?store_id=1&start_date=2025-10-01&end_date=2025-10-31
 
 ```powershell
 python -m venv .venv
