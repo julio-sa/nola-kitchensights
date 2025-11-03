@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/auth_provider.dart';
+import '../providers/my_stores_provider.dart';
 import '../services/api_service.dart';
 import '../widgets/at_risk_customers_widget.dart';
 import '../widgets/delivery_heatmap_widget.dart';
@@ -28,9 +29,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     final authState = ref.read(authProvider);
     _selectedStore = authState.storeIds.first;
-    _comparisonStore = authState.storeIds.length > 1 ? authState.storeIds[1] : null;
+    _comparisonStore =
+        authState.storeIds.length > 1 ? authState.storeIds[1] : null;
     final now = DateTime.now();
-    _dateRange = DateTimeRange(start: now.subtract(const Duration(days: 29)), end: now);
+    _dateRange =
+        DateTimeRange(start: now.subtract(const Duration(days: 29)), end: now);
   }
 
   Future<void> _pickDateRange() async {
@@ -61,7 +64,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await Clipboard.setData(ClipboardData(text: csv));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Relatório gerado e copiado para a área de transferência.')),
+          const SnackBar(
+            content:
+                Text('Relatório gerado e copiado para a área de transferência.'),
+          ),
         );
       }
     } catch (err) {
@@ -77,9 +83,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  // Resolve "Loja {nome}" pelo id (fallback: "Loja #id" enquanto carrega)
+  String _storeLabel(AsyncValue<List<KitchenStoreRef>> storesAsync, int id) {
+    return storesAsync.maybeWhen(
+      data: (stores) {
+        final found = stores.where((s) => s.id == id);
+        if (found.isNotEmpty) return 'Loja ${found.first.name}';
+        return 'Loja #$id';
+      },
+      orElse: () => 'Loja #$id',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
+    final storesAsync = ref.watch(myStoresProvider);
+
     final storeIds = authState.storeIds;
     final comparisonOptions = _availableComparisonStores(storeIds);
 
@@ -97,8 +117,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       final nextIndex = (currentIndex + 1) % storeIds.length;
                       _selectedStore = storeIds[nextIndex];
                       final newOptions = _availableComparisonStores(storeIds);
-                      if (_comparisonStore != null && !newOptions.contains(_comparisonStore)) {
-                        _comparisonStore = newOptions.isEmpty ? null : newOptions.first;
+                      if (_comparisonStore != null &&
+                          !newOptions.contains(_comparisonStore)) {
+                        _comparisonStore =
+                            newOptions.isEmpty ? null : newOptions.first;
                       }
                     });
                   },
@@ -121,13 +143,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   spacing: 16,
                   runSpacing: 12,
                   children: [
+                    // Loja selecionada
                     DropdownButton<int>(
                       value: _selectedStore,
                       items: storeIds
                           .map(
                             (id) => DropdownMenuItem(
                               value: id,
-                              child: Text('Loja #$id'),
+                              child: Text(_storeLabel(storesAsync, id)),
                             ),
                           )
                           .toList(),
@@ -135,32 +158,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         if (value == null) return;
                         setState(() {
                           _selectedStore = value;
-                          final newOptions = _availableComparisonStores(storeIds);
-                          if (_comparisonStore != null && !newOptions.contains(_comparisonStore)) {
-                            _comparisonStore = newOptions.isEmpty ? null : newOptions.first;
+                          final newOptions =
+                              _availableComparisonStores(storeIds);
+                          if (_comparisonStore != null &&
+                              !newOptions.contains(_comparisonStore)) {
+                            _comparisonStore =
+                                newOptions.isEmpty ? null : newOptions.first;
                           }
                         });
                       },
                     ),
+
+                    // Comparar com...
                     if (comparisonOptions.isNotEmpty)
                       DropdownButton<int>(
-                        value: comparisonOptions.contains(_comparisonStore) ? _comparisonStore : null,
+                        value: comparisonOptions.contains(_comparisonStore)
+                            ? _comparisonStore
+                            : null,
                         hint: const Text('Comparar com...'),
                         items: comparisonOptions
                             .map(
                               (id) => DropdownMenuItem(
                                 value: id,
-                                child: Text('Loja #$id'),
+                                child: Text(_storeLabel(storesAsync, id)),
                               ),
                             )
                             .toList(),
-                        onChanged: (value) => setState(() => _comparisonStore = value),
+                        onChanged: (value) =>
+                            setState(() => _comparisonStore = value),
                       ),
+
+                    // Período
                     OutlinedButton.icon(
                       onPressed: _pickDateRange,
                       icon: const Icon(Icons.calendar_today),
-                      label: Text('${_formatDate(_dateRange.start)} - ${_formatDate(_dateRange.end)}'),
+                      label: Text(
+                          '${_formatDate(_dateRange.start)} - ${_formatDate(_dateRange.end)}'),
                     ),
+
+                    // Exportar
                     ElevatedButton.icon(
                       onPressed: () {
                         final ids = <int>{
@@ -171,13 +207,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         _exportReport(ids);
                       },
                       icon: _isExporting
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
                           : const Icon(Icons.file_download),
-                      label: Text(_isExporting ? 'Exportando...' : 'Exportar CSV'),
+                      label: Text(
+                          _isExporting ? 'Exportando...' : 'Exportar CSV'),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
+
+                // Cards
                 RevenueOverviewWidget(
                   storeId: _selectedStore,
                   startDate: _dateRange.start,
