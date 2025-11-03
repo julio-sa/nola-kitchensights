@@ -22,6 +22,9 @@ app.include_router(
     tags=["widgets"],
 )
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 @app.get("/")
 async def root():
