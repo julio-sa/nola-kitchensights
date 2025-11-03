@@ -21,6 +21,40 @@ Nola KitchenSights é uma plataforma de analytics desenhada para donos de restau
 
 ### Backend
 
+#### 0) (opcional, mas recomendado) Subir Postgres via Docker
+Opção A - usando Docker Compose (pasta `infra/` sugerida)
+
+```bash
+# na raiz do projeto
+mkdir -p infra && cat > infra/docker-compose.yml <<'YML'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: challenge
+      POSTGRES_PASSWORD: challenge
+      POSTGRES_DB: challenge_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U challenge -d challenge_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+YML
+
+docker compose -f infra/docker-compose.yml up -d db
+```
+
+Opção B — só Docker (sem compose)
+```bash
+docker run -d --name nola-db \
+  -e POSTGRES_USER=challenge \
+  -e POSTGRES_PASSWORD=challenge \
+  -e POSTGRES_DB=challenge_db \
+  -p 5432:5432 postgres:15
+```
+
 #### 1) entrar na pasta do backend (se seu backend está na raiz, ignore)
 cd backend   # ou cd .
 
