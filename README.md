@@ -42,6 +42,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 #### 6) testar endpoint
 #### GET http://localhost:8000/api/v1/widgets/revenue-overview?store_id=1&start_date=2025-10-01&end_date=2025-10-31
 
+Powershell
 ```powershell
 python -m venv .venv
 .venv/Scripts/Activate.ps1
@@ -49,6 +50,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 ou
+Command Prompt
 ```cmd
 python -m venv .venv
 .venv/Scripts/activate.bat
@@ -56,6 +58,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 ou
+Linux/macOS
 ```Linux/macOS
 python -m venv .venv
 source .venv/bin/activate
