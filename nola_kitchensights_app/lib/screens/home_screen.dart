@@ -10,6 +10,7 @@ import '../widgets/delivery_heatmap_widget.dart';
 import '../widgets/revenue_overview_widget.dart';
 import '../widgets/store_comparison_widget.dart';
 import '../widgets/top_products_widget.dart';
+import 'graphs_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -65,9 +66,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content:
-                Text('Relatório gerado e copiado para a área de transferência.'),
-          ),
+              content: Text(
+                  'Relatório gerado e copiado para a área de transferência.')),
         );
       }
     } catch (err) {
@@ -83,8 +83,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  // Resolve "Loja {nome}" pelo id (fallback: "Loja #id" enquanto carrega)
-  String _storeLabel(AsyncValue<List<KitchenStoreRef>> storesAsync, int id) {
+  String _storeLabel(
+      AsyncValue<List<KitchenStoreRef>> storesAsync, int id) {
     return storesAsync.maybeWhen(
       data: (stores) {
         final found = stores.where((s) => s.id == id);
@@ -93,6 +93,72 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       },
       orElse: () => 'Loja #$id',
     );
+  }
+
+  Future<void> _openStorePicker() async {
+    try {
+      final stores = await ref.read(myStoresProvider.future);
+      if (!mounted) return;
+
+      final pickedId = await showModalBottomSheet<int>(
+        context: context,
+        showDragHandle: true,
+        builder: (ctx) {
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                const Text('Trocar loja',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemBuilder: (_, idx) {
+                      final s = stores[idx];
+                      final selected = s.id == _selectedStore;
+                      return ListTile(
+                        leading: const Icon(Icons.storefront),
+                        title: Text('Loja ${s.name}'),
+                        subtitle: Text('ID: ${s.id}'),
+                        trailing: selected
+                            ? const Icon(Icons.check, color: Colors.green)
+                            : null,
+                        onTap: () => Navigator.of(ctx).pop(s.id),
+                      );
+                    },
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemCount: stores.length,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (pickedId != null) {
+        setState(() {
+          _selectedStore = pickedId;
+          final authState = ref.read(authProvider);
+          final options =
+              _availableComparisonStores(authState.storeIds);
+          if (_comparisonStore != null &&
+              !options.contains(_comparisonStore)) {
+            _comparisonStore =
+                options.isEmpty ? null : options.first;
+          }
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível carregar lojas: $e')),
+      );
+    }
   }
 
   @override
@@ -109,21 +175,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         actions: [
           IconButton(
             tooltip: 'Trocar loja',
-            onPressed: storeIds.length <= 1
-                ? null
-                : () {
-                    setState(() {
-                      final currentIndex = storeIds.indexOf(_selectedStore);
-                      final nextIndex = (currentIndex + 1) % storeIds.length;
-                      _selectedStore = storeIds[nextIndex];
-                      final newOptions = _availableComparisonStores(storeIds);
-                      if (_comparisonStore != null &&
-                          !newOptions.contains(_comparisonStore)) {
-                        _comparisonStore =
-                            newOptions.isEmpty ? null : newOptions.first;
-                      }
-                    });
-                  },
+            onPressed: _openStorePicker,
             icon: const Icon(Icons.storefront),
           ),
         ],
@@ -143,7 +195,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   spacing: 16,
                   runSpacing: 12,
                   children: [
-                    // Loja selecionada
                     DropdownButton<int>(
                       value: _selectedStore,
                       items: storeIds
@@ -168,8 +219,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         });
                       },
                     ),
-
-                    // Comparar com...
                     if (comparisonOptions.isNotEmpty)
                       DropdownButton<int>(
                         value: comparisonOptions.contains(_comparisonStore)
@@ -187,16 +236,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         onChanged: (value) =>
                             setState(() => _comparisonStore = value),
                       ),
-
-                    // Período
                     OutlinedButton.icon(
                       onPressed: _pickDateRange,
                       icon: const Icon(Icons.calendar_today),
                       label: Text(
                           '${_formatDate(_dateRange.start)} - ${_formatDate(_dateRange.end)}'),
                     ),
-
-                    // Exportar
                     ElevatedButton.icon(
                       onPressed: () {
                         final ids = <int>{
@@ -210,17 +255,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ? const SizedBox(
                               width: 16,
                               height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
+                              child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.file_download),
                       label: Text(
                           _isExporting ? 'Exportando...' : 'Exportar CSV'),
                     ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => GraphsScreen(
+                              storeId: _selectedStore,
+                              startDate: _dateRange.start,
+                              endDate: _dateRange.end,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.bar_chart),
+                      label: const Text('Ver gráficos'),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
-
-                // Cards
                 RevenueOverviewWidget(
                   storeId: _selectedStore,
                   startDate: _dateRange.start,
