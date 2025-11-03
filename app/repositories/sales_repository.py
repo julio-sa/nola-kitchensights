@@ -485,7 +485,24 @@ class SalesRepository:
         }
 
     # ---------------------------------------------------------
-    # STORE COMPARISON (AGORA COM NOME)
+    # STORE PERFORMANCE
+    # ---------------------------------------------------------
+    async def get_channel_performance(self, store_id: int, period_days: int = 30):
+        q = text("""
+            SELECT ch.name AS channel, SUM(s.total_amount) AS total_sales
+            FROM sales s
+            JOIN channels ch ON ch.id = s.channel_id
+            WHERE s.store_id = :store_id
+              AND s.sale_status_desc = 'COMPLETED'
+              AND s.created_at::date >= CURRENT_DATE - :period_days * INTERVAL '1 day'
+            GROUP BY ch.name
+            ORDER BY total_sales DESC
+        """)
+        res = await self._execute(q, {"store_id": store_id, "period_days": period_days})
+        return await self._rows(res)
+
+    # ---------------------------------------------------------
+    # STORE COMPARISON (COM NOME)
     # ---------------------------------------------------------
     async def get_store_comparison(
         self,

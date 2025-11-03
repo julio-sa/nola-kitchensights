@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:nola_kitchensights_app/providers/auth_provider.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends ConsumerWidget {
@@ -19,6 +20,11 @@ class LoginScreen extends ConsumerWidget {
             const SizedBox(height: 32),
             ElevatedButton(
               onPressed: () {
+                ref.read(authProvider.notifier).impersonate(
+                  name: 'Maria',
+                  storeIds: [71, 97],
+                );
+
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(builder: (context) => const HomeScreen()),

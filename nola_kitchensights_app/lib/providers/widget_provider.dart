@@ -620,30 +620,38 @@ final revenueOverviewProvider = FutureProvider.family<
   return resp;
 });
 
+String _yyyyMMdd(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-'
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';
+
 final storeComparisonProvider = FutureProvider.family<
     StoreComparisonResponse, StoreComparisonParams>((ref, params) async {
-  // 1) tenta com as lojas que vieram da UI
-  Map<String, dynamic> json = await _getJson(ref, 'store-comparison', {
+  final qs = {
     'store_a_id': params.storeA.toString(),
     'store_b_id': params.storeB.toString(),
-    'start_date': params.startDate.toIso8601String().split('T').first,
-    'end_date': params.endDate.toIso8601String().split('T').first,
-  });
+    'start_date': _yyyyMMdd(params.startDate),
+    'end_date': _yyyyMMdd(params.endDate),
+  };
+
+  // 1) chama o backend de fato
+  Map<String, dynamic> json = await _getJson(ref, 'store-comparison', qs);
   var resp = StoreComparisonResponse.fromJson(json);
 
+  // 2) fallback se vier vazio
   if (resp.stores.isEmpty) {
-    // pega as duas primeiras lojas com dado
     final list = await _getList(ref, 'available-stores');
     if (list.length >= 2) {
       final a = list[0] as Map<String, dynamic>;
       final b = list[1] as Map<String, dynamic>;
       final aId = _asInt(a['store_id'] ?? a['id']);
       final bId = _asInt(b['store_id'] ?? b['id']);
+
       json = await _getJson(ref, 'store-comparison', {
         'store_a_id': aId.toString(),
         'store_b_id': bId.toString(),
-        'start_date': params.startDate.toIso8601String().split('T').first,
-        'end_date': params.endDate.toIso8601String().split('T').first,
+        'start_date': _yyyyMMdd(params.startDate),
+        'end_date': _yyyyMMdd(params.endDate),
       });
       resp = StoreComparisonResponse.fromJson(json);
     }

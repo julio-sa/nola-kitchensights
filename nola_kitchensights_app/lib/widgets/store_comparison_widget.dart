@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:nola_kitchensights_app/providers/widget_provider.dart'
-    show storeComparisonProvider;
+    show StoreComparisonStore, storeComparisonProvider;
 import 'package:nola_kitchensights_app/data/params/widget_params.dart'
     as wp;
 import 'package:nola_kitchensights_app/widgets/dashboard_section_header.dart';
@@ -205,14 +205,11 @@ class _StoreComparisonWidgetState
                                         ),
                                   ),
                                 ] else ...[
-                                  Text(
-                                      'Faturamento: R\$ ${v.data!.totalSales.toStringAsFixed(2)}'),
+                                  Text('Faturamento: R\$ ${v.data!.totalSales.toStringAsFixed(2)}'),
                                   Text('Pedidos: ${v.data!.totalOrders}'),
-                                  Text(
-                                      'Ticket: R\$ ${v.data!.averageTicket.toStringAsFixed(2)}'),
+                                  Text('Ticket: R\$ ${v.data!.averageTicket.toStringAsFixed(2)}'),
                                   if (v.data!.topChannel != null)
-                                    Text(
-                                        'Canal líder: ${v.data!.topChannel} (${v.data!.topChannelSharePct?.toStringAsFixed(1) ?? '--'}%)'),
+                                    Text('Canal líder: ${v.data!.topChannel} (${v.data!.topChannelSharePct?.toStringAsFixed(1) ?? '--'}%)'),
                                 ],
                                 Text(
                                   'ID: ${v.id}',
@@ -258,26 +255,37 @@ class _StoreComparisonWidgetState
   _StoreView _buildViewForStore({
     required int id,
     required AsyncValue<List<KitchenStoreRef>> myStores,
-    required List<dynamic> apiStores,
+    required List<dynamic> apiStores, // é List<StoreComparisonStore>
   }) {
-    // nome da Maria
+    // 1) Nome base
     String name = 'Loja $id';
-    myStores.whenData((list) {
+    if (myStores.hasValue) {
+      final list = myStores.value!;
       final found = list.where((e) => e.id == id);
       if (found.isNotEmpty) {
         name = found.first.name;
       }
-    });
+    }
 
-    // dados vindos do backend (pode ser null)
-    final match = apiStores.where((s) => s.storeId == id);
-    final data = match.isNotEmpty ? match.first : null;
+    // 2) Encontre o item já modelado
+    StoreComparisonStore? data;
+    for (final s in apiStores) {
+      try {
+        final sid = (s as dynamic).storeId as int;
+        if (sid == id) {
+          data = s as StoreComparisonStore;
+          break;
+        }
+      } catch (_) {}
+    }
 
-    return _StoreView(
-      id: id,
-      name: name,
-      data: data,
-    );
+    // 3) Se o backend mandou nome e myStores ainda não tinha, use o do backend
+    if ((name == 'Loja $id' || name.trim().isEmpty) && data != null) {
+      final apiName = data!.storeName.trim();
+      if (apiName.isNotEmpty) name = apiName;
+    }
+
+    return _StoreView(id: id, name: name, data: data);
   }
 
   // decide qual índice destacar
@@ -289,7 +297,6 @@ class _StoreComparisonWidgetState
     // se uma não tem dado, destaca a que tem
     if (a.data != null && b.data == null) return 0;
     if (b.data != null && a.data == null) return 1;
-
     if (a.data == null && b.data == null) return 0;
 
     switch (metric) {
@@ -462,7 +469,7 @@ class _StoreComparisonWidgetState
 class _StoreView {
   final int id;
   final String name;
-  final dynamic data; // StoreComparisonStore? mas deixo dynamic p/ não importar com show
+  final StoreComparisonStore? data;
 
   _StoreView({
     required this.id,
@@ -470,6 +477,7 @@ class _StoreView {
     required this.data,
   });
 }
+
 
 class _ComparisonInsightBox extends StatelessWidget {
   final _HighlightMetric metric;
@@ -522,3 +530,66 @@ class _ComparisonInsightBox extends StatelessWidget {
     );
   }
 }
+
+// ===== Helpers de leitura tolerante =====
+
+int? _readStoreId(dynamic obj) {
+  final v = _readAny(obj, const ['storeId', 'id', 'store_id']);
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v);
+  return null;
+}
+
+num? _readNum(dynamic obj, List<String> keys) {
+  final v = _readAny(obj, keys);
+  if (v is num) return v;
+  if (v is String) return num.tryParse(v);
+  return null;
+}
+
+int? _readInt(dynamic obj, List<String> keys) {
+  final v = _readAny(obj, keys);
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v);
+  return null;
+}
+
+String? _readString(dynamic obj, List<String> keys) {
+  final v = _readAny(obj, keys);
+  return v?.toString();
+}
+
+dynamic _readAny(dynamic obj, List<String> keys) {
+  if (obj == null) return null;
+
+  // Map plano
+  if (obj is Map) {
+    for (final k in keys) {
+      if (obj.containsKey(k)) return obj[k];
+    }
+    // Busca rasa em submaps comuns
+    for (final container in const ['metrics','stats','data','performance','attributes','payload']) {
+      final sub = obj[container];
+      if (sub is Map) {
+        for (final k in keys) {
+          if (sub.containsKey(k)) return sub[k];
+        }
+      }
+    }
+  }
+
+  // Objeto com toJson()
+  try {
+    final toJson = obj.toJson();
+    if (toJson is Map) {
+      for (final k in keys) {
+        if (toJson.containsKey(k)) return toJson[k];
+      }
+    }
+  } catch (_) {}
+
+  return null;
+}
+

@@ -1,38 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class AuthState {
-  final bool isLoggedIn;
   final String userName;
   final List<int> storeIds;
+  const AuthState({required this.userName, required this.storeIds});
 
-  AuthState({
-    this.isLoggedIn = false,
-    this.userName = '',
-    this.storeIds = const [],
-  });
+  AuthState copyWith({String? userName, List<int>? storeIds}) =>
+      AuthState(userName: userName ?? this.userName,
+                storeIds: storeIds ?? this.storeIds);
+}
 
-  AuthState.loggedIn({
-    required this.userName,
-    required this.storeIds,
-  }) : isLoggedIn = true;
+class AuthNotifier extends StateNotifier<AuthState> {
+  AuthNotifier(): super(const AuthState(userName: 'Convidado', storeIds: [1,2]));
 
-  AuthState copyWith({
-    bool? isLoggedIn,
-    String? userName,
-    List<int>? storeIds,
-  }) {
-    return AuthState(
-      isLoggedIn: isLoggedIn ?? this.isLoggedIn,
-      userName: userName ?? this.userName,
-      storeIds: storeIds ?? this.storeIds,
-    );
+  void impersonate({required String name, required List<int> storeIds}) {
+    state = state.copyWith(userName: name, storeIds: storeIds);
   }
 }
 
-// Mock: assume que o usuário está logado como Maria
-final authProvider = Provider<AuthState>((ref) {
-  return AuthState.loggedIn(
-    userName: 'Maria',
-    storeIds: [1, 2, 3],
-  );
+// providers
+final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
+  return AuthNotifier();
 });
