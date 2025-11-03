@@ -5,8 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:nola_kitchensights_app/providers/widget_provider.dart'
     show revenueOverviewProvider;
-import 'package:nola_kitchensights_app/data/params/widget_params.dart'
-    as wp;
+import 'package:nola_kitchensights_app/data/params/widget_params.dart' as wp;
 import 'package:nola_kitchensights_app/widgets/dashboard_section_header.dart';
 import 'package:nola_kitchensights_app/providers/my_stores_provider.dart';
 
@@ -27,24 +26,30 @@ class RevenueOverviewWidget extends ConsumerStatefulWidget {
       _RevenueOverviewWidgetState();
 }
 
-class _RevenueOverviewWidgetState
-    extends ConsumerState<RevenueOverviewWidget> {
+class _RevenueOverviewWidgetState extends ConsumerState<RevenueOverviewWidget> {
   late int _currentStoreId;
+  String? _currentStoreName;
   DateTimeRange? _currentRange;
 
   @override
   void initState() {
     super.initState();
     _currentStoreId = widget.storeId;
-    _currentRange = DateTimeRange(
-      start: widget.startDate,
-      end: widget.endDate,
-    );
+    _currentRange = DateTimeRange(start: widget.startDate, end: widget.endDate);
+
+    // tenta resolver o nome inicial quando o provider retornar
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(myStoresProvider).whenData((stores) {
+        final hit = stores.where((s) => s.id == _currentStoreId);
+        if (hit.isNotEmpty && mounted) {
+          setState(() => _currentStoreName = hit.first.name);
+        }
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // aqui é ConsumerState -> usa ref direto
     final storesAsync = ref.watch(myStoresProvider);
 
     final params = wp.RevenueOverviewParams(
@@ -65,8 +70,8 @@ class _RevenueOverviewWidgetState
           ),
           error: (err, _) => Text('Erro ao carregar overview: $err'),
           data: (overview) {
-            final realStart = overview.startDate ??
-                (_currentRange?.start ?? widget.startDate);
+            final realStart =
+                overview.startDate ?? (_currentRange?.start ?? widget.startDate);
             final realEnd =
                 overview.endDate ?? (_currentRange?.end ?? widget.endDate);
 
@@ -76,18 +81,8 @@ class _RevenueOverviewWidgetState
                 .map((c) => c.channel)
                 .toList();
 
-            // nome amigável da loja
-            final storeName = storesAsync.maybeWhen(
-              data: (stores) {
-                final found =
-                    stores.where((s) => s.id == _currentStoreId).toList();
-                if (found.isNotEmpty) {
-                  return found.first.name;
-                }
-                return 'Loja $_currentStoreId';
-              },
-              orElse: () => 'Loja $_currentStoreId',
-            );
+            final storeName =
+                _currentStoreName ?? _resolveStoreName(storesAsync, _currentStoreId);
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,7 +94,8 @@ class _RevenueOverviewWidgetState
                       '$storeName • ${_formatDate(realStart)} - ${_formatDate(realEnd)}',
                   badge: salesDrop
                       ? const DashboardBadge(
-                          label: '🛑 queda > 10%',
+                          // 👇 acrescento o texto curto solicitado
+                          label: '🛑 queda > 10% • em relação ao período anterior',
                           background: Color(0xFFFFEBEE),
                           foreground: Color(0xFFC62828),
                           icon: Icons.warning_amber_rounded,
@@ -112,7 +108,6 @@ class _RevenueOverviewWidgetState
                               icon: Icons.trending_up,
                             )
                           : null),
-                  // mesmo ícone do Top Products
                   trailing: IconButton(
                     icon: const Icon(Icons.tune),
                     tooltip: 'Filtrar período / loja',
@@ -143,10 +138,7 @@ class _RevenueOverviewWidgetState
                   ],
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  'Top canais',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
+                Text('Top canais', style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 8),
                 if (overview.topChannels.isEmpty)
                   const Text('Nenhum canal com vendas no período.')
@@ -161,8 +153,7 @@ class _RevenueOverviewWidgetState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(channel.channel),
                                 Text('${channel.sharePct.toStringAsFixed(1)}%'),
@@ -199,15 +190,15 @@ class _RevenueOverviewWidgetState
     );
   }
 
-  Future<void> _openFilters(
-      AsyncValue<List<KitchenStoreRef>> storesAsync) async {
-    // se ainda está carregando as lojas, não abre
+  // ---------- Filtros ----------
+  Future<void> _openFilters(AsyncValue<List<KitchenStoreRef>> storesAsync) async {
     if (!storesAsync.hasValue) return;
     final stores = storesAsync.value!;
+    if (stores.isEmpty) return;
 
     int tmpStore = _currentStoreId;
-    DateTimeRange tmpRange = _currentRange ??
-        DateTimeRange(start: widget.startDate, end: widget.endDate);
+    DateTimeRange tmpRange =
+        _currentRange ?? DateTimeRange(start: widget.startDate, end: widget.endDate);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -216,6 +207,9 @@ class _RevenueOverviewWidgetState
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
+            final items = _storeItems(stores);
+            final safeValue = _safeValue(tmpStore, items);
+
             return Padding(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
@@ -228,32 +222,18 @@ class _RevenueOverviewWidgetState
                 children: [
                   const Text(
                     'Filtro de faturamento',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
-                    // aqui o Flutter reclamou do value -> usar initialValue
-                    initialValue: tmpStore,
+                    key: ValueKey('store_${items.length}_$safeValue'),
+                    value: safeValue,
+                    items: items,
                     decoration: const InputDecoration(
                       labelText: 'Loja',
                       border: OutlineInputBorder(),
                     ),
-                    items: stores
-                        .map(
-                          (s) => DropdownMenuItem(
-                            value: s.id,
-                            child: Text(s.name),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        setModalState(() => tmpStore = v);
-                      }
-                    },
+                    onChanged: (v) => setModalState(() => tmpStore = v ?? tmpStore),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -268,9 +248,7 @@ class _RevenueOverviewWidgetState
                               initialDateRange: tmpRange,
                             );
                             if (picked != null) {
-                              setModalState(() {
-                                tmpRange = picked;
-                              });
+                              setModalState(() => tmpRange = picked);
                             }
                           },
                           icon: const Icon(Icons.date_range),
@@ -297,6 +275,11 @@ class _RevenueOverviewWidgetState
                             setState(() {
                               _currentStoreId = tmpStore;
                               _currentRange = tmpRange;
+                              final sel = stores.firstWhere(
+                                (s) => s.id == tmpStore,
+                                orElse: () => KitchenStoreRef(id: tmpStore, name: 'Loja $tmpStore'),
+                              );
+                              _currentStoreName = sel.name;
                             });
                             Navigator.of(ctx).pop();
                           },
@@ -316,8 +299,37 @@ class _RevenueOverviewWidgetState
     );
   }
 
+  // ---------- Helpers UI ----------
   String _formatDate(DateTime date) =>
       '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
+
+  String _resolveStoreName(AsyncValue<List<KitchenStoreRef>> async, int id) {
+    return async.maybeWhen(
+      data: (stores) {
+        final hit = stores.where((s) => s.id == id);
+        return hit.isNotEmpty ? hit.first.name : 'Loja $id';
+      },
+      orElse: () => 'Loja $id',
+    );
+  }
+
+  List<DropdownMenuItem<int>> _storeItems(List<KitchenStoreRef> stores) {
+    final seen = <int>{};
+    final items = <DropdownMenuItem<int>>[];
+    for (final s in stores) {
+      if (seen.add(s.id)) {
+        items.add(DropdownMenuItem<int>(value: s.id, child: Text(s.name)));
+      }
+    }
+    return items;
+  }
+
+  T? _safeValue<T>(T? value, List<DropdownMenuItem<T>> items) {
+    if (value == null) return items.isNotEmpty ? items.first.value : null;
+    final matches = items.where((it) => it.value == value).length;
+    if (matches == 1) return value;
+    return items.isNotEmpty ? items.first.value : null;
+  }
 }
 
 class _MetricTile extends StatelessWidget {
@@ -335,17 +347,12 @@ class _MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final formatted = currency
-        ? 'R\$ ${value.toStringAsFixed(2)}'
-        : value.toStringAsFixed(0);
-    final variationText = variation == null
-        ? null
-        : '${variation! >= 0 ? '↑' : '↓'} ${variation!.abs().toStringAsFixed(1)}%';
-    final variationColor = variation == null
-        ? null
-        : variation! >= 0
-            ? Colors.green
-            : Colors.red;
+    final formatted =
+        currency ? 'R\$ ${value.toStringAsFixed(2)}' : value.toStringAsFixed(0);
+    final variationText =
+        variation == null ? null : '${variation! >= 0 ? '↑' : '↓'} ${variation!.abs().toStringAsFixed(1)}%';
+    final variationColor =
+        variation == null ? null : (variation! >= 0 ? Colors.green : Colors.red);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

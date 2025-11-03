@@ -281,7 +281,7 @@ class _StoreComparisonWidgetState
 
     // 3) Se o backend mandou nome e myStores ainda não tinha, use o do backend
     if ((name == 'Loja $id' || name.trim().isEmpty) && data != null) {
-      final apiName = data!.storeName.trim();
+      final apiName = data.storeName.trim();
       if (apiName.isNotEmpty) name = apiName;
     }
 
@@ -530,66 +530,3 @@ class _ComparisonInsightBox extends StatelessWidget {
     );
   }
 }
-
-// ===== Helpers de leitura tolerante =====
-
-int? _readStoreId(dynamic obj) {
-  final v = _readAny(obj, const ['storeId', 'id', 'store_id']);
-  if (v is int) return v;
-  if (v is num) return v.toInt();
-  if (v is String) return int.tryParse(v);
-  return null;
-}
-
-num? _readNum(dynamic obj, List<String> keys) {
-  final v = _readAny(obj, keys);
-  if (v is num) return v;
-  if (v is String) return num.tryParse(v);
-  return null;
-}
-
-int? _readInt(dynamic obj, List<String> keys) {
-  final v = _readAny(obj, keys);
-  if (v is int) return v;
-  if (v is num) return v.toInt();
-  if (v is String) return int.tryParse(v);
-  return null;
-}
-
-String? _readString(dynamic obj, List<String> keys) {
-  final v = _readAny(obj, keys);
-  return v?.toString();
-}
-
-dynamic _readAny(dynamic obj, List<String> keys) {
-  if (obj == null) return null;
-
-  // Map plano
-  if (obj is Map) {
-    for (final k in keys) {
-      if (obj.containsKey(k)) return obj[k];
-    }
-    // Busca rasa em submaps comuns
-    for (final container in const ['metrics','stats','data','performance','attributes','payload']) {
-      final sub = obj[container];
-      if (sub is Map) {
-        for (final k in keys) {
-          if (sub.containsKey(k)) return sub[k];
-        }
-      }
-    }
-  }
-
-  // Objeto com toJson()
-  try {
-    final toJson = obj.toJson();
-    if (toJson is Map) {
-      for (final k in keys) {
-        if (toJson.containsKey(k)) return toJson[k];
-      }
-    }
-  } catch (_) {}
-
-  return null;
-}
-

@@ -5,9 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:nola_kitchensights_app/providers/widget_provider.dart'
     show topProductsProvider;
-import 'package:nola_kitchensights_app/data/params/widget_params.dart'
-    as wp;
+import 'package:nola_kitchensights_app/data/params/widget_params.dart' as wp;
 import 'package:nola_kitchensights_app/widgets/dashboard_section_header.dart';
+import 'package:nola_kitchensights_app/providers/my_stores_provider.dart';
 
 class TopProductsWidget extends ConsumerStatefulWidget {
   final int storeId;
@@ -18,15 +18,23 @@ class TopProductsWidget extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<TopProductsWidget> createState() =>
-      _TopProductsWidgetState();
+  ConsumerState<TopProductsWidget> createState() => _TopProductsWidgetState();
 }
 
 class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
+  // Novo: manter loja selecionada em estado local
+  late int _storeId;
+
   String _channel = 'iFood';
   int _dayOfWeek = DateTime.now().weekday;
   int _hourStart = 0;
   int _hourEnd = 23;
+
+  @override
+  void initState() {
+    super.initState();
+    _storeId = widget.storeId;
+  }
 
   String get _dayLabel {
     const dias = {
@@ -43,8 +51,10 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final storesAsync = ref.watch(myStoresProvider);
+
     final params = wp.TopProductsParams(
-      storeId: widget.storeId,
+      storeId: _storeId,
       channel: _channel,
       dayOfWeek: _dayOfWeek,
       hourStart: _hourStart,
@@ -52,6 +62,9 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
     );
 
     final productsFuture = ref.watch(topProductsProvider(params));
+
+    // Resolve nome da loja para UI
+    final storeName = _resolveStoreName(storesAsync, _storeId);
 
     return Card(
       child: Padding(
@@ -63,13 +76,11 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
           ),
           error: (err, _) => Text('Erro ao carregar produtos: $err'),
           data: (top) {
-            final hasCritical = top.products.any(
-              (p) => (p.weekOverWeekChangePct ?? 0) <= -30,
-            );
+            final hasCritical =
+                top.products.any((p) => (p.weekOverWeekChangePct ?? 0) <= -30);
             final criticalProduct = hasCritical
-                ? top.products.firstWhere(
-                    (p) => (p.weekOverWeekChangePct ?? 0) <= -30,
-                  )
+                ? top.products
+                    .firstWhere((p) => (p.weekOverWeekChangePct ?? 0) <= -30)
                 : null;
 
             final opportunityProduct = top.products.isNotEmpty
@@ -85,8 +96,9 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                 DashboardSectionHeader(
                   icon: Icons.star,
                   title: 'Top produtos',
+                  // Subtítulo pedido: Loja, Canal, Dia, Horário
                   subtitle:
-                      'Canal: $_channel • Dia: $_dayLabel • ${_hourStart}h–${_hourEnd}h',
+                      '$storeName • Canal: $_channel • Dia: $_dayLabel • ${_hourStart}h–${_hourEnd}h',
                   badge: hasCritical
                       ? const DashboardBadge(
                           label: '🛑 produto caindo',
@@ -105,7 +117,7 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                   trailing: IconButton(
                     icon: const Icon(Icons.tune),
                     tooltip: 'Filtros',
-                    onPressed: () => _openFilters(context),
+                    onPressed: () => _openFilters(context, storesAsync),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -113,6 +125,11 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                   spacing: 8,
                   runSpacing: 4,
                   children: [
+                    // Chip com nome da loja
+                    Chip(
+                      label: Text(storeName),
+                      avatar: const Icon(Icons.store, size: 16),
+                    ),
                     Chip(
                       label: Text('Canal: $_channel'),
                       avatar: const Icon(Icons.campaign, size: 16),
@@ -186,7 +203,10 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
     );
   }
 
-  Future<void> _openFilters(BuildContext context) async {
+  Future<void> _openFilters(
+      BuildContext context, AsyncValue<List<KitchenStoreRef>> storesAsync) async {
+    // Valores temporários
+    int tmpStore = _storeId;
     String tmpChannel = _channel;
     int tmpDay = _dayOfWeek;
     int tmpStart = _hourStart;
@@ -199,6 +219,12 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
+            final storeItems = storesAsync.maybeWhen(
+              data: (stores) => _storeItems(stores),
+              orElse: () => <DropdownMenuItem<int>>[],
+            );
+            final safeValue = _safeValue(tmpStore, storeItems);
+
             return Padding(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
@@ -217,6 +243,23 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // Filtro de Loja
+                  DropdownButtonFormField<int>(
+                    key: ValueKey('store_${storeItems.length}_$safeValue'),
+                    value: safeValue,
+                    items: storeItems,
+                    decoration: const InputDecoration(
+                      labelText: 'Loja',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (v) {
+                      if (v != null) setModalState(() => tmpStore = v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Filtro de Canal
                   DropdownButtonFormField<String>(
                     initialValue: tmpChannel,
                     decoration: const InputDecoration(
@@ -234,12 +277,12 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                           value: 'WhatsApp', child: Text('WhatsApp')),
                     ],
                     onChanged: (v) {
-                      if (v != null) {
-                        setModalState(() => tmpChannel = v);
-                      }
+                      if (v != null) setModalState(() => tmpChannel = v);
                     },
                   ),
                   const SizedBox(height: 12),
+
+                  // Filtro de Dia
                   DropdownButtonFormField<int>(
                     initialValue: tmpDay,
                     decoration: const InputDecoration(
@@ -256,12 +299,12 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                       DropdownMenuItem(value: 7, child: Text('Domingo')),
                     ],
                     onChanged: (v) {
-                      if (v != null) {
-                        setModalState(() => tmpDay = v);
-                      }
+                      if (v != null) setModalState(() => tmpDay = v);
                     },
                   ),
                   const SizedBox(height: 12),
+
+                  // Filtro de Hora
                   Row(
                     children: [
                       Expanded(
@@ -282,9 +325,7 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                             if (v != null) {
                               setModalState(() {
                                 tmpStart = v;
-                                if (tmpEnd < tmpStart) {
-                                  tmpEnd = tmpStart;
-                                }
+                                if (tmpEnd < tmpStart) tmpEnd = tmpStart;
                               });
                             }
                           },
@@ -309,9 +350,7 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                             if (v != null) {
                               setModalState(() {
                                 tmpEnd = v;
-                                if (tmpEnd < tmpStart) {
-                                  tmpStart = tmpEnd;
-                                }
+                                if (tmpEnd < tmpStart) tmpStart = tmpEnd;
                               });
                             }
                           },
@@ -320,6 +359,8 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                     ],
                   ),
                   const SizedBox(height: 20),
+
+                  // Ações
                   Row(
                     children: [
                       Expanded(
@@ -333,6 +374,7 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
                         child: ElevatedButton.icon(
                           onPressed: () {
                             setState(() {
+                              _storeId = tmpStore;
                               _channel = tmpChannel;
                               _dayOfWeek = tmpDay;
                               _hourStart = tmpStart;
@@ -354,6 +396,35 @@ class _TopProductsWidgetState extends ConsumerState<TopProductsWidget> {
         );
       },
     );
+  }
+
+  // ---------- helpers ----------
+  String _resolveStoreName(AsyncValue<List<KitchenStoreRef>> async, int id) {
+    return async.maybeWhen(
+      data: (stores) {
+        final hit = stores.where((s) => s.id == id);
+        return hit.isNotEmpty ? hit.first.name : 'Loja #$id';
+      },
+      orElse: () => 'Loja #$id',
+    );
+  }
+
+  List<DropdownMenuItem<int>> _storeItems(List<KitchenStoreRef> stores) {
+    final seen = <int>{};
+    final items = <DropdownMenuItem<int>>[];
+    for (final s in stores) {
+      if (seen.add(s.id)) {
+        items.add(DropdownMenuItem<int>(value: s.id, child: Text(s.name)));
+      }
+    }
+    return items;
+  }
+
+  T? _safeValue<T>(T? value, List<DropdownMenuItem<T>> items) {
+    if (value == null) return items.isNotEmpty ? items.first.value : null;
+    final matches = items.where((it) => it.value == value).length;
+    if (matches == 1) return value;
+    return items.isNotEmpty ? items.first.value : null;
   }
 }
 

@@ -1,13 +1,14 @@
 // lib/widgets/delivery_heatmap_widget.dart
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:nola_kitchensights_app/providers/widget_provider.dart'
     show deliveryHeatmapProvider, DeliveryRegionInsight;
-import 'package:nola_kitchensights_app/data/params/widget_params.dart'
-    as wp;
+import 'package:nola_kitchensights_app/data/params/widget_params.dart' as wp;
 import 'package:nola_kitchensights_app/widgets/dashboard_section_header.dart';
+import 'package:nola_kitchensights_app/providers/my_stores_provider.dart';
 
 class DeliveryHeatmapWidget extends ConsumerStatefulWidget {
   final int storeId;
@@ -22,22 +23,34 @@ class DeliveryHeatmapWidget extends ConsumerStatefulWidget {
       _DeliveryHeatmapWidgetState();
 }
 
-class _DeliveryHeatmapWidgetState
-    extends ConsumerState<DeliveryHeatmapWidget> {
+class _DeliveryHeatmapWidgetState extends ConsumerState<DeliveryHeatmapWidget> {
+  // Loja selecionada
+  late int _storeId;
+
+  // Filtros
   DateTimeRange? _range;
-  String _groupBy = 'bairro'; // bairro | cidade
+  String _groupBy = 'bairro'; // 'bairro' | 'cidade'
   bool _onlySlow = false;
   int _maxItems = 10;
 
   @override
+  void initState() {
+    super.initState();
+    _storeId = widget.storeId;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final storesAsync = ref.watch(myStoresProvider);
+
     final params = wp.DeliveryHeatmapParams(
-      storeId: widget.storeId,
+      storeId: _storeId,
       startDate: _range?.start,
       endDate: _range?.end,
     );
 
     final heatmapFuture = ref.watch(deliveryHeatmapProvider(params));
+    final storeName = _resolveStoreName(storesAsync, _storeId);
 
     return Card(
       child: Padding(
@@ -49,43 +62,66 @@ class _DeliveryHeatmapWidgetState
           ),
           error: (err, _) => Text('Erro ao carregar mapa de calor: $err'),
           data: (heatmap) {
+            // ---- Montagem das regiões por modo ----
             final List<_UiRegion> regions;
             if (_groupBy == 'bairro') {
-              regions = heatmap.regions
-                  .map<_UiRegion>((r) => _UiRegion(
-                        label: '${r.neighborhood} • ${r.city}',
-                        city: r.city,
-                        deliveryCount: r.deliveryCount,
-                        avgMinutes: r.avgDeliveryMinutes,
-                        p90Minutes: r.p90DeliveryMinutes,
-                        wowChangePct: r.weekOverWeekChangePct,
-                      ))
-                  .toList();
+              regions = heatmap.regions.map<_UiRegion>((r) {
+                final displayCity = r.city;
+                final normCity = _normCity(displayCity);
+                return _UiRegion(
+                  label: '${r.neighborhood} • $displayCity',
+                  city: normCity, // usar cidade normalizada internamente
+                  deliveryCount: r.deliveryCount,
+                  avgMinutes: r.avgDeliveryMinutes,
+                  p90Minutes: r.p90DeliveryMinutes,
+                  wowChangePct: r.weekOverWeekChangePct,
+                );
+              }).toList();
             } else {
               regions = _groupByCity(heatmap.regions);
             }
 
-            // aplica filtro SLA > 40 se marcado
+            // filtro SLA > 40
             List<_UiRegion> filtered = regions;
             if (_onlySlow) {
-              filtered = filtered
-                  .where((r) => (r.avgMinutes) > 40.0)
-                  .toList();
+              filtered = filtered.where((r) => r.avgMinutes > 40.0).toList();
             }
 
-            // ordena por SLA desc
+            // ordenação por SLA desc
             filtered.sort((a, b) => b.avgMinutes.compareTo(a.avgMinutes));
 
-            // insight: pega pior
+            // pior região (insight)
             final _UiRegion? worstRegion =
                 filtered.isNotEmpty ? filtered.first : null;
 
-            // limitar a 10
+            // paginação simples
             final visible = filtered.take(_maxItems).toList();
             final hasMore = filtered.length > _maxItems;
 
-            final hasSlowRegion =
-                filtered.any((r) => (r.avgMinutes) > 40.0);
+            final hasSlowRegion = filtered.any((r) => r.avgMinutes > 40.0);
+
+            final periodText = _range == null
+                ? 'Período: mês atual'
+                : 'Período: ${_fmt(_range!.start)} - ${_fmt(_range!.end)}';
+            final groupText =
+                _groupBy == 'bairro' ? 'Agrupando por bairro' : 'Agrupando por cidade';
+
+            // (debug) checagem opcional de inconsistência
+            final List<_UiRegion> _byCityForCheck =
+                (_groupBy == 'cidade') ? regions : _groupByCity(heatmap.regions);
+            final List<_UiRegion> _byBairroForCheck =
+                (_groupBy == 'bairro') ? regions : heatmap.regions
+                    .map<_UiRegion>((r) => _UiRegion(
+                          label: '${r.neighborhood} • ${_normCity(r.city)}',
+                          city: _normCity(r.city),
+                          deliveryCount: r.deliveryCount,
+                          avgMinutes: r.avgDeliveryMinutes,
+                          p90Minutes: r.p90DeliveryMinutes,
+                          wowChangePct: r.weekOverWeekChangePct,
+                        ))
+                    .toList();
+            final bool inconsistent =
+                kDebugMode ? _hasInconsistency(_byBairroForCheck, _byCityForCheck) : false;
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,9 +129,7 @@ class _DeliveryHeatmapWidgetState
                 DashboardSectionHeader(
                   icon: Icons.delivery_dining,
                   title: 'Mapa de calor de entregas',
-                  subtitle: _range == null
-                      ? 'Período: mês atual • Agrupando por $_groupBy'
-                      : 'Período: ${_fmt(_range!.start)} - ${_fmt(_range!.end)} • Agrupando por $_groupBy',
+                  subtitle: '$storeName • $periodText • $groupText',
                   badge: hasSlowRegion
                       ? const DashboardBadge(
                           label: '🛑 SLA > 40min',
@@ -109,65 +143,21 @@ class _DeliveryHeatmapWidgetState
                           foreground: Color(0xFF2E7D32),
                           icon: Icons.check_circle,
                         ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      DropdownButton<String>(
-                        value: _groupBy,
-                        onChanged: (v) {
-                          if (v != null) {
-                            setState(() {
-                              _groupBy = v;
-                            });
-                          }
-                        },
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'bairro',
-                            child: Text('Por bairro'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'cidade',
-                            child: Text('Por cidade'),
-                          ),
-                        ],
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.date_range),
-                        onPressed: () async {
-                          final now = DateTime.now();
-                          final picked = await showDateRangePicker(
-                            context: context,
-                            firstDate: DateTime(now.year - 1),
-                            lastDate: DateTime(now.year + 1),
-                            initialDateRange: _range ??
-                                DateTimeRange(
-                                  start: now.subtract(const Duration(days: 7)),
-                                  end: now,
-                                ),
-                          );
-                          if (picked != null) {
-                            setState(() {
-                              _range = picked;
-                            });
-                          }
-                        },
-                      ),
-                    ],
+                  trailing: IconButton(
+                    icon: const Icon(Icons.tune),
+                    tooltip: 'Filtros',
+                    onPressed: () => _openFilters(context, storesAsync),
                   ),
                 ),
                 const SizedBox(height: 8),
-                // filtros rápidos
+
+                // linha de chips rápidos
                 Row(
                   children: [
                     FilterChip(
                       label: const Text('Só SLA > 40min'),
                       selected: _onlySlow,
-                      onSelected: (v) {
-                        setState(() {
-                          _onlySlow = v;
-                        });
-                      },
+                      onSelected: (v) => setState(() => _onlySlow = v),
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -177,25 +167,30 @@ class _DeliveryHeatmapWidgetState
                     const Spacer(),
                     if (hasMore)
                       TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _maxItems += 10;
-                          });
-                        },
+                        onPressed: () => setState(() => _maxItems += 10),
                         child: const Text('Ver mais'),
                       ),
                     if (!hasMore && filtered.length > 10)
                       TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _maxItems = 10;
-                          });
-                        },
+                        onPressed: () => setState(() => _maxItems = 10),
                         child: const Text('Voltar'),
                       ),
                   ],
                 ),
+                if (inconsistent) ...[
+                  const SizedBox(height: 6),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Chip(
+                      avatar: Icon(Icons.info, size: 16),
+                      label: Text(
+                        'Aviso (debug): verifique normalização de cidade/bairro',
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
+
                 if (visible.isEmpty)
                   const Text('Nenhuma região com entregas suficientes.')
                 else
@@ -212,14 +207,14 @@ class _DeliveryHeatmapWidgetState
                         ),
                         title: Text(r.label),
                         subtitle: Text(
-                          'Entregas: ${r.deliveryCount} • SLA médio: ${avgMinutes.toStringAsFixed(1)} min'
-                          ' • P90: ${r.p90Minutes != null ? '${r.p90Minutes!.toStringAsFixed(1)} min' : '—'}'
-                          ' • Evolução: ${r.wowChangePct != null ? '${r.wowChangePct!.toStringAsFixed(1)}%' : '—'}',
+                          'Entregas: ${r.deliveryCount} • Tempo de entrega médio: ${avgMinutes.toStringAsFixed(1)} min'
+                          ' • P90 (90% das entregas até): ${r.p90Minutes != null ? '${r.p90Minutes!.toStringAsFixed(1)} min' : '—'}'
+                          ' • Evolução: ${r.wowChangePct != null ? '${r.wowChangePct!.toStringAsFixed(1)}%' : '— (sem comparação)'}',
                         ),
                         trailing: isSlow
                             ? const Chip(
                                 label: Text(
-                                  'SLA > 40min',
+                                  'Tempo de Entrega > 40min',
                                   style: TextStyle(color: Colors.white),
                                 ),
                                 backgroundColor: Colors.red,
@@ -243,11 +238,145 @@ class _DeliveryHeatmapWidgetState
     );
   }
 
+  Future<void> _openFilters(
+      BuildContext context, AsyncValue<List<KitchenStoreRef>> storesAsync) async {
+    int tmpStore = _storeId;
+    String tmpGroupBy = _groupBy;
+    DateTimeRange tmpRange = _range ??
+        DateTimeRange(
+          start: DateTime.now().subtract(const Duration(days: 7)),
+          end: DateTime.now(),
+        );
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final storeItems = storesAsync.maybeWhen(
+              data: (stores) => _storeItems(stores),
+              orElse: () => <DropdownMenuItem<int>>[],
+            );
+            final safeValue = _safeValue(tmpStore, storeItems);
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                left: 16,
+                right: 16,
+                top: 8,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Filtros do mapa de calor',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Loja
+                  DropdownButtonFormField<int>(
+                    key: ValueKey('store_${storeItems.length}_$safeValue'),
+                    value: safeValue,
+                    items: storeItems,
+                    decoration: const InputDecoration(
+                      labelText: 'Loja',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (v) {
+                      if (v != null) setModalState(() => tmpStore = v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Agrupamento
+                  DropdownButtonFormField<String>(
+                    value: tmpGroupBy,
+                    items: const [
+                      DropdownMenuItem(value: 'bairro', child: Text('Por bairro')),
+                      DropdownMenuItem(value: 'cidade', child: Text('Por cidade')),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: 'Agrupamento',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (v) {
+                      if (v != null) setModalState(() => tmpGroupBy = v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Período
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final picked = await showDateRangePicker(
+                              context: ctx,
+                              firstDate: DateTime(DateTime.now().year - 1),
+                              lastDate: DateTime(DateTime.now().year + 1),
+                              initialDateRange: tmpRange,
+                            );
+                            if (picked != null) {
+                              setModalState(() => tmpRange = picked);
+                            }
+                          },
+                          icon: const Icon(Icons.date_range),
+                          label: Text(
+                            '${_fmt(tmpRange.start)} - ${_fmt(tmpRange.end)}',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('Cancelar'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _storeId = tmpStore;
+                              _groupBy = tmpGroupBy;
+                              _range = tmpRange;
+                              _maxItems = 10; // reset ao aplicar
+                            });
+                            Navigator.of(ctx).pop();
+                          },
+                          icon: const Icon(Icons.check),
+                          label: const Text('Aplicar'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ---------- Agrupamento por cidade (com normalização) ----------
   List<_UiRegion> _groupByCity(List<DeliveryRegionInsight> original) {
     final Map<String, _UiRegion> map = {};
 
     for (final r in original) {
-      final key = r.city.isNotEmpty ? r.city : 'Sem cidade';
+      final key = _normCity(r.city);
       if (!map.containsKey(key)) {
         map[key] = _UiRegion(
           label: key,
@@ -263,7 +392,7 @@ class _DeliveryHeatmapWidgetState
 
         final weightedAvg = ((current.avgMinutes * current.deliveryCount) +
                 (r.avgDeliveryMinutes * r.deliveryCount)) /
-            totalDeliveries;
+            (totalDeliveries == 0 ? 1 : totalDeliveries);
 
         map[key] = _UiRegion(
           label: key,
@@ -277,19 +406,96 @@ class _DeliveryHeatmapWidgetState
     }
 
     final list = map.values.toList()
-      ..sort(
-        (a, b) => b.deliveryCount.compareTo(a.deliveryCount),
-      );
+      ..sort((a, b) => b.deliveryCount.compareTo(a.deliveryCount));
     return list;
   }
 
+  // ---------- Helpers ----------
   String _fmt(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+
+  String _resolveStoreName(AsyncValue<List<KitchenStoreRef>> async, int id) {
+    return async.maybeWhen(
+      data: (stores) {
+        final hit = stores.where((s) => s.id == id);
+        return hit.isNotEmpty ? hit.first.name : 'Loja #$id';
+      },
+      orElse: () => 'Loja #$id',
+    );
+  }
+
+  List<DropdownMenuItem<int>> _storeItems(List<KitchenStoreRef> stores) {
+    final seen = <int>{};
+    final items = <DropdownMenuItem<int>>[];
+    for (final s in stores) {
+      if (seen.add(s.id)) {
+        items.add(DropdownMenuItem<int>(value: s.id, child: Text(s.name)));
+      }
+    }
+    return items;
+  }
+
+  T? _safeValue<T>(T? value, List<DropdownMenuItem<T>> items) {
+    if (value == null) return items.isNotEmpty ? items.first.value : null;
+    final matches = items.where((it) => it.value == value).length;
+    if (matches == 1) return value;
+    return items.isNotEmpty ? items.first.value : null;
+  }
+
+  // Normalização simples de cidade (case/acentos/espacos)
+  String _normCity(String? s) {
+    if (s == null) return 'sem_cidade';
+    var t = s.trim().toLowerCase();
+    if (t.isEmpty) return 'sem_cidade';
+    // substituições rápidas (pode trocar por um normalizador mais robusto se quiser)
+    t = t
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll('ã', 'a')
+        .replaceAll('á', 'a')
+        .replaceAll('à', 'a')
+        .replaceAll('â', 'a')
+        .replaceAll('ä', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('è', 'e')
+        .replaceAll('ê', 'e')
+        .replaceAll('ë', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ì', 'i')
+        .replaceAll('î', 'i')
+        .replaceAll('ï', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ò', 'o')
+        .replaceAll('ô', 'o')
+        .replaceAll('õ', 'o')
+        .replaceAll('ö', 'o')
+        .replaceAll('ú', 'u')
+        .replaceAll('ù', 'u')
+        .replaceAll('û', 'u')
+        .replaceAll('ü', 'u')
+        .replaceAll('ç', 'c')
+        .replaceAll('ß', 'ss');
+    return t;
+  }
+
+  // Checagem opcional de inconsistência (debug)
+  bool _hasInconsistency(List<_UiRegion> bairros, List<_UiRegion> cidades) {
+    final cityTotals = <String, int>{};
+    for (final c in cidades) {
+      cityTotals[c.city] = (cityTotals[c.city] ?? 0) + c.deliveryCount;
+    }
+    for (final b in bairros) {
+      final cityTotal = cityTotals[b.city] ?? 0;
+      if (cityTotal > 0 && b.deliveryCount > cityTotal) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 class _UiRegion {
   final String label;
-  final String city;
+  final String city; // normalizada
   final int deliveryCount;
   final double avgMinutes;
   final double? p90Minutes;
@@ -330,7 +536,7 @@ class _DeliveryInsightBox extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Insight: ${groupBy == 'bairro' ? 'Bairro' : 'Cidade'} "$name" está com SLA médio de ${worstRegion.avgMinutes.toStringAsFixed(1)} min. Sugerir reordenar entregas ou criar rota dedicada para essa região.',
+              'Insight: ${groupBy == 'bairro' ? 'Bairro' : 'Cidade'} "$name" está com Tempo de entrega médio de ${worstRegion.avgMinutes.toStringAsFixed(1)} min. Sugerir reordenar entregas ou criar rota dedicada para essa região.',
               style: const TextStyle(
                 color: Color(0xFFE65100),
                 fontWeight: FontWeight.w500,
