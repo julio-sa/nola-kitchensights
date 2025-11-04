@@ -107,9 +107,9 @@ class _DeliveryHeatmapWidgetState extends ConsumerState<DeliveryHeatmapWidget> {
                 _groupBy == 'bairro' ? 'Agrupando por bairro' : 'Agrupando por cidade';
 
             // (debug) checagem opcional de inconsistência
-            final List<_UiRegion> _byCityForCheck =
+            final List<_UiRegion> byCityForCheck =
                 (_groupBy == 'cidade') ? regions : _groupByCity(heatmap.regions);
-            final List<_UiRegion> _byBairroForCheck =
+            final List<_UiRegion> byBairroForCheck =
                 (_groupBy == 'bairro') ? regions : heatmap.regions
                     .map<_UiRegion>((r) => _UiRegion(
                           label: '${r.neighborhood} • ${_normCity(r.city)}',
@@ -121,7 +121,7 @@ class _DeliveryHeatmapWidgetState extends ConsumerState<DeliveryHeatmapWidget> {
                         ))
                     .toList();
             final bool inconsistent =
-                kDebugMode ? _hasInconsistency(_byBairroForCheck, _byCityForCheck) : false;
+                kDebugMode ? _hasInconsistency(byBairroForCheck, byCityForCheck) : false;
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,

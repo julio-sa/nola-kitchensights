@@ -517,7 +517,6 @@ class _BarRow extends StatelessWidget {
   final String valueLabel;
 
   const _BarRow({
-    super.key,
     required this.label,
     required this.value,
     required this.valueLabel,
@@ -565,7 +564,6 @@ class _MetricRow extends StatelessWidget {
   final Color? variationColor;
 
   const _MetricRow({
-    super.key,
     required this.leftLabel,
     required this.leftValue,
     required this.rightLabel,
@@ -625,7 +623,6 @@ class _InsightBox extends StatelessWidget {
   final String text;
 
   const _InsightBox({
-    super.key,
     required this.color,
     required this.icon,
     required this.iconColor,
