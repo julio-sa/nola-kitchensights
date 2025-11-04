@@ -58,6 +58,9 @@ Future<List<dynamic>> _getList(
   throw Exception('Erro ${resp.statusCode} ao chamar $endpoint: ${resp.body}');
 }
 
+// util pra extrair string segura
+String _asString(dynamic v) => v == null ? '' : v.toString();
+
 /// tenta descobrir uma loja que realmente tem dado de entrega/venda
 Future<int?> _getFirstAvailableStoreId(Ref ref) async {
   try {
@@ -203,8 +206,7 @@ class DeliveryRegionInsight {
         (json['avg_delivery_minutes'] ?? json['avgDeliveryMinutes']) as num?;
 
     final avgMinutes =
-        (minutesField?.toDouble()) ??
-            (minutesFromSeconds ?? 0.0);
+        (minutesField?.toDouble()) ?? (minutesFromSeconds ?? 0.0);
 
     final p90Seconds =
         (json['p90_delivery_seconds'] ?? json['p90_delivery_secs']) as num?;
@@ -423,7 +425,7 @@ class StoreComparisonStore {
 
   factory StoreComparisonStore.fromJson(Map<String, dynamic> json) {
     final id = _asInt(json['store_id'] ?? json['storeId']);
-    // 🔥 AQUI é a mudança: tentamos vários nomes antes de cair no "Loja XX"
+    // tenta vários campos de nome antes de cair no fallback
     final rawName = (json['store_name'] ??
             json['storeName'] ??
             json['name'] ??
@@ -486,32 +488,83 @@ class StoreComparisonResponse {
 }
 
 /// =========================
+/// AUXILIAR: melhor canal por produto (para canal = ALL)
+/// =========================
+
+Future<Map<String, String>> _bestChannelByProduct(
+  Ref ref,
+  TopProductsParams base,
+) async {
+  // 1) lista canais existentes da loja
+  final channelsList = await _getList(ref, 'store-channels', {
+    'store_id': base.storeId.toString(),
+  });
+  final channelNames = <String>[
+    for (final c in channelsList)
+      if (c is Map<String, dynamic>) _asString(c['name'])
+  ].where((s) => s.isNotEmpty).toList();
+  if (channelNames.isEmpty) return {};
+
+  // 2) para cada canal, chama /top-products mantendo dia/hora
+  final best = <String, MapEntry<String, double>>{};
+  for (final ch in channelNames) {
+    final json = await _getJson(ref, 'top-products', {
+      'store_id': base.storeId.toString(),
+      'channel': ch,
+      'day_of_week': base.dayOfWeek.toString(),
+      'hour_start': base.hourStart.toString(),
+      'hour_end': base.hourEnd.toString(),
+    });
+    final resp = TopProductsResponse.fromJson(json);
+    for (final item in resp.products) {
+      final name = item.productName;
+      final rev = item.totalRevenue;
+      final prev = best[name];
+      if (prev == null || rev > prev.value) {
+        best[name] = MapEntry(ch, rev);
+      }
+    }
+  }
+
+  // 3) transforma em mapa simples: produto -> canal
+  return {
+    for (final e in best.entries) e.key: e.value.key,
+  };
+}
+
+/// Provider: mapa produto -> melhor canal (só quando canal = ALL)
+final bestChannelByProductProvider =
+    FutureProvider.family<Map<String, String>, TopProductsParams>((ref, params) async {
+  if (params.channel != 'ALL') return {};
+  try {
+    return await _bestChannelByProduct(ref, params);
+  } catch (_) {
+    return {}; // silencioso: UI só não mostra o selinho
+  }
+});
+
+/// =========================
 /// PROVIDERS
 /// =========================
 
 final topProductsProvider = FutureProvider.family<TopProductsResponse,
     TopProductsParams>((ref, params) async {
-  // 1ª tentativa com a loja pedida
-  Map<String, dynamic> json = await _getJson(ref, 'top-products', {
+  final qs = {
     'store_id': params.storeId.toString(),
-    'channel': params.channel,
+    'channel': params.channel, // sempre manda; backend trata 'ALL'
     'day_of_week': params.dayOfWeek.toString(),
     'hour_start': params.hourStart.toString(),
     'hour_end': params.hourEnd.toString(),
-  });
+  };
+
+  Map<String, dynamic> json = await _getJson(ref, 'top-products', qs);
   var resp = TopProductsResponse.fromJson(json);
 
-  // se não veio nada, tenta descobrir uma loja com dados
   if (resp.products.isEmpty) {
     final fallbackStore = await _getFirstAvailableStoreId(ref);
     if (fallbackStore != null && fallbackStore != params.storeId) {
-      json = await _getJson(ref, 'top-products', {
-        'store_id': fallbackStore.toString(),
-        'channel': params.channel,
-        'day_of_week': params.dayOfWeek.toString(),
-        'hour_start': params.hourStart.toString(),
-        'hour_end': params.hourEnd.toString(),
-      });
+      final qs2 = {...qs, 'store_id': fallbackStore.toString()};
+      json = await _getJson(ref, 'top-products', qs2);
       resp = TopProductsResponse.fromJson(json);
     }
   }

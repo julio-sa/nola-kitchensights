@@ -9,7 +9,7 @@ app = FastAPI(title="Nola KitchenSights API")
 # CORS bem aberto pra dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # depois você pode trocar por ["http://localhost:8386"]
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

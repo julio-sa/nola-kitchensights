@@ -122,7 +122,7 @@ class ApiService {
     required DateTime startDate,
     required DateTime endDate,
   }) async {
-    final base = '${ApiConstants.baseUrl}/reports/store-performance';
+    final base = '${ApiConstants.baseUrl}/widgets/reports/store-performance';
     final start = startDate.toIso8601String().split('T').first;
     final end = endDate.toIso8601String().split('T').first;
     final storeQuery = storeIds.map((id) => 'store_ids=$id').join('&');

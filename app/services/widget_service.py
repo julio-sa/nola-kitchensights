@@ -1,7 +1,7 @@
 # app/services/widget_service.py
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from app.repositories.sales_repository import SalesRepository
@@ -17,18 +17,44 @@ class WidgetService:
     async def get_top_products_insight(
         self,
         store_id: int,
-        channel: str,
+        channel: Optional[str],
         day_of_week: int,
         hour_start: int,
         hour_end: int,
+        limit: int = 10
     ):
-        rows = await self.repo.get_top_products_by_channel_and_time(
+        end_date = date.today()
+        start_date = end_date - timedelta(days=29)
+        # Período padrão: últimos 30 dias até a ÚLTIMA DATA COM VENDAS da loja
+        last_date = await self.repo.get_last_sale_date_for_store(store_id)
+
+        if not last_date:
+              # Sem vendas registradas para a loja → devolve vazio de forma elegante
+
+            return {
+                "store_id": store_id,
+                "channel": channel,
+                "day_of_week": day_of_week,
+                "hour_start": hour_start,
+                "hour_end": hour_end,
+                "products": [],
+                "limit": limit,
+                "start_date": None,
+                "end_date": None,
+                "note": "Nenhuma venda encontrada para esta loja.",
+            }
+        end_date = last_date
+        start_date = end_date - timedelta(days=29)
+
+        rows = await self.repo.get_top_products_flexible(
             store_id=store_id,
-            channel=channel,
+            channel=channel,  # None => sem filtro de canal
+            start_date=start_date,
+            end_date=end_date,
             day_of_week=day_of_week,
             hour_start=hour_start,
             hour_end=hour_end,
-            limit=10,
+            limit=limit,
         )
         return {
             "store_id": store_id,
@@ -37,12 +63,15 @@ class WidgetService:
             "hour_start": hour_start,
             "hour_end": hour_end,
             "products": rows,
+            "limit": limit,
+            "start_date": start_date,
+            "end_date": end_date,
         }
 
     async def get_top_products_flexible(
             self,
             store_id: int,
-            channel_name: Optional[str],
+            channel: Optional[str],
             start_date: date,
             end_date: date,
             day_of_week: Optional[int],
@@ -53,7 +82,7 @@ class WidgetService:
         # 1) tenta exatamente o que o Flutter pediu
         rows = await self.repo.get_top_products_flexible(
             store_id=store_id,
-            channel_name=channel_name,
+            channel=channel,
             start_date=start_date,
             end_date=end_date,
             day_of_week=day_of_week,
@@ -65,10 +94,10 @@ class WidgetService:
             return rows
 
         # 2) se veio vazio e tinha canal, tenta sem canal
-        if channel_name is not None:
+        if channel is not None:
             rows = await self.repo.get_top_products_flexible(
                 store_id=store_id,
-                channel_name=None,  # 👈 tira o canal
+                channel=None,  # 👈 tira o canal
                 start_date=start_date,
                 end_date=end_date,
                 day_of_week=day_of_week,
@@ -83,7 +112,7 @@ class WidgetService:
         if day_of_week is not None or (hour_start is not None and hour_end is not None):
             rows = await self.repo.get_top_products_flexible(
                 store_id=store_id,
-                channel_name=None,
+                channel=None,
                 start_date=start_date,
                 end_date=end_date,
                 day_of_week=None,

@@ -67,7 +67,7 @@ class ReportService:
             )
 
         filename = f"store-performance_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.csv"
-        generated_at = datetime.utcnow().isoformat(timespec="seconds")
+        generated_at = datetime.now().isoformat(timespec="seconds")
         output.write(f"Gerado em;{generated_at}\n")
 
         return output.getvalue(), filename

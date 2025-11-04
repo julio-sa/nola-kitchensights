@@ -1,9 +1,10 @@
 # app/api/v1/routes/widgets.py
 from datetime import date
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, List
 import os
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
 
 from app.repositories.sales_repository import SalesRepository
 from app.services.widget_service import WidgetService
+from app.services.report_service import ReportService
 
 router = APIRouter(tags=["widgets"])
 
@@ -45,6 +47,11 @@ def get_widget_service(db: AsyncSession = Depends(get_session)) -> WidgetService
     return WidgetService(repo)
 
 
+def get_report_service(db: AsyncSession = Depends(get_session)) -> ReportService:
+    repo = SalesRepository(db)
+    return ReportService(repo)
+
+
 # --------------------------------------------------------
 # ENDPOINTS
 # --------------------------------------------------------
@@ -60,19 +67,29 @@ async def get_store_channels(
 @router.get("/top-products")
 async def get_top_products(
     store_id: int,
-    channel: str,
+    channel: str = Query(..., description="Ex.: iFood, Rappi, Presencial, WhatsApp, ALL"),
     day_of_week: int = Query(..., ge=1, le=7),
     hour_start: int = Query(0, ge=0, le=23),
     hour_end: int = Query(23, ge=0, le=23),
     service: WidgetService = Depends(get_widget_service),
 ):
-    return await service.get_top_products_insight(
-        store_id,
-        channel,
-        day_of_week,
-        hour_start,
-        hour_end,
+    # 🔑 Normaliza "ALL" para None (sem filtro de canal)
+    ch_norm: Optional[str] = None
+    if channel and channel.strip():
+        up = channel.strip().upper()
+        if up not in {"ALL", "TODOS", "TODOS OS CANAIS", "ALL_CHANNELS", "*"}:
+            ch_norm = channel.strip()
+
+    data = await service.get_top_products_insight(
+        store_id=store_id,
+        channel=ch_norm,  # None => sem filtro
+        day_of_week=day_of_week,
+        hour_start=hour_start,
+        hour_end=hour_end,
+        limit=10,  # já garante 10 itens
     )
+    return data
+
 
 @router.get("/top-products-flex")
 async def get_top_products_flex(
@@ -97,7 +114,7 @@ async def get_top_products_flex(
     """
     rows = await service.get_top_products_flexible(
         store_id=store_id,
-        channel_name=channel,
+        channel=channel,
         start_date=start_date,
         end_date=end_date,
         day_of_week=day_of_week,
@@ -115,6 +132,7 @@ async def get_top_products_flex(
         "hour_end": hour_end,
         "products": rows,
     }
+
 
 @router.get("/delivery-heatmap")
 async def get_delivery_heatmap(
@@ -178,6 +196,31 @@ async def get_available_stores(
     service: WidgetService = Depends(get_widget_service),
 ):
     return await service.list_available_stores()
+
+
+# --------------------------------------------------------
+# REPORTS inline (rota: /api/v1/reports/store-performance)
+# --------------------------------------------------------
+@router.get("/reports/store-performance")
+async def get_store_performance_report(
+    store_ids: List[int] = Query(..., description="IDs de lojas. Pode repetir o parâmetro: ?store_ids=52&store_ids=83"),
+    start_date: date = Query(..., description="YYYY-MM-DD"),
+    end_date: date = Query(..., description="YYYY-MM-DD"),
+    service: ReportService = Depends(get_report_service),
+):
+    """
+    Gera CSV de performance por loja no período.
+    """
+    csv_text, filename = await service.build_store_performance_report(
+        store_ids=store_ids,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+    )
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+    )
 
 
 # opcional: simular que a Maria tem 3 lojas

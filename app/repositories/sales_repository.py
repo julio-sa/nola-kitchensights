@@ -27,134 +27,13 @@ class SalesRepository:
     async def _rows(self, result) -> List[Dict[str, Any]]:
         return [dict(r) for r in result.mappings().all()]
 
-    async def _get_last_sale_date_for_stores(self, store_ids: list[int]) -> Optional[date]:
-        """
-        usado como fallback quando o período pedido não tem dado
-        """
-        if not store_ids:
-            return None
-
-        q = (
-            text(
-                """
-            SELECT MAX(created_at)::DATE AS last_date
-            FROM sales
-            WHERE store_id IN :store_ids
-              AND sale_status_desc = 'COMPLETED'
-            """
-            )
-            .bindparams(bindparam("store_ids", expanding=True))
-        )
-
-        res = await self._execute(q, {"store_ids": tuple(store_ids)})
-        rows = await self._rows(res)
-        if not rows:
-            return None
-        return rows[0].get("last_date")
-
     # ---------------------------------------------------------
     # TOP PRODUCTS
     # ---------------------------------------------------------
-    async def get_top_products_by_channel_and_time(
-        self,
-        store_id: int,
-        channel: str,
-        day_of_week: int,
-        hour_start: int,
-        hour_end: int,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-        limit: int = 5,
-    ) -> list[dict[str, Any]]:
-        """
-        tua versão "simples": canal + dia + hora
-        se vier start/end, considera o período
-        """
-        channel = channel.strip()
-        pg_dow = day_of_week % 7  # 1..7 → 0..6
-
-        if start_date and end_date:
-            sql = text(
-                """
-                WITH base AS (
-                    SELECT
-                        p.name AS product_name,
-                        ps.quantity AS qty,
-                        ps.total_price AS revenue
-                    FROM sales s
-                    JOIN channels c ON c.id = s.channel_id
-                    JOIN product_sales ps ON ps.sale_id = s.id
-                    JOIN products p ON p.id = ps.product_id
-                    WHERE
-                        s.store_id = :store_id
-                        AND c.name = :channel
-                        AND s.sale_status_desc = 'COMPLETED'
-                        AND s.created_at::date BETWEEN :start_date AND :end_date
-                )
-                SELECT
-                    product_name,
-                    SUM(qty) AS total_quantity,
-                    SUM(revenue) AS total_revenue,
-                    100 * SUM(revenue) / NULLIF(SUM(SUM(revenue)) OVER (), 0) AS pct_of_total
-                FROM base
-                GROUP BY product_name
-                ORDER BY total_revenue DESC
-                LIMIT :limit
-                """
-            )
-            params = {
-                "store_id": store_id,
-                "channel": channel,
-                "start_date": start_date,
-                "end_date": end_date,
-                "limit": limit,
-            }
-        else:
-            sql = text(
-                """
-                WITH base AS (
-                    SELECT
-                        p.name AS product_name,
-                        ps.quantity AS qty,
-                        ps.total_price AS revenue
-                    FROM sales s
-                    JOIN channels c ON c.id = s.channel_id
-                    JOIN product_sales ps ON ps.sale_id = s.id
-                    JOIN products p ON p.id = ps.product_id
-                    WHERE
-                        s.store_id = :store_id
-                        AND c.name = :channel
-                        AND s.sale_status_desc = 'COMPLETED'
-                        AND EXTRACT(DOW FROM s.created_at) = :pg_dow
-                        AND EXTRACT(HOUR FROM s.created_at) BETWEEN :hour_start AND :hour_end
-                )
-                SELECT
-                    product_name,
-                    SUM(qty) AS total_quantity,
-                    SUM(revenue) AS total_revenue,
-                    100 * SUM(revenue) / NULLIF(SUM(SUM(revenue)) OVER (), 0) AS pct_of_total
-                FROM base
-                GROUP BY product_name
-                ORDER BY total_revenue DESC
-                LIMIT :limit
-                """
-            )
-            params = {
-                "store_id": store_id,
-                "channel": channel,
-                "pg_dow": pg_dow,
-                "hour_start": hour_start,
-                "hour_end": hour_end,
-                "limit": limit,
-            }
-
-        result = await self._execute(sql, params)
-        return await self._rows(result)
-
     async def get_top_products_flexible(
         self,
         store_id: int,
-        channel_name: Optional[str],
+        channel: Optional[str],
         start_date: date,
         end_date: date,
         day_of_week: Optional[int],
@@ -173,7 +52,7 @@ class SalesRepository:
         filters = ["s.store_id = :store_id", "s.sale_status_desc = 'COMPLETED'"]
         prev_filters = ["s.store_id = :store_id", "s.sale_status_desc = 'COMPLETED'"]
 
-        if channel_name:
+        if channel:
             filters.append("ch.name = :channel_name")
             prev_filters.append("ch.name = :channel_name")
 
@@ -249,8 +128,8 @@ class SalesRepository:
             "prev_end": prev_end,
             "limit": limit,
         }
-        if channel_name:
-            params["channel_name"] = channel_name
+        if channel:
+            params["channel_name"] = channel
         if day_of_week is not None:
             params["dow"] = day_of_week % 7
         if hour_start is not None and hour_end is not None:
@@ -595,3 +474,107 @@ class SalesRepository:
         }
         res = await self._execute(query, params)
         return await self._rows(res)
+
+    async def get_store_performance_for_period(
+            self,
+            store_ids: List[int],
+            start_date: date,
+            end_date: date,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retorna, por loja, os agregados de performance no período:
+          - store_name
+          - total_sales
+          - total_orders
+          - average_ticket
+          - top_channel: {"channel": str, "share_pct": float} ou NULL
+        Considera apenas vendas COMPLETED dentro do intervalo.
+        """
+        query = text("""
+        WITH filtered AS (
+            SELECT s.store_id, s.total_amount, s.channel_id
+            FROM sales s
+            WHERE s.sale_status_desc = 'COMPLETED'
+              AND s.created_at::DATE BETWEEN :start_date AND :end_date
+              AND s.store_id = ANY(:store_ids)
+        ),
+        summary AS (
+            SELECT
+                f.store_id,
+                COALESCE(SUM(f.total_amount), 0)  AS total_sales,
+                COUNT(*)                           AS total_orders,
+                COALESCE(AVG(f.total_amount), 0)  AS average_ticket
+            FROM filtered f
+            GROUP BY f.store_id
+        ),
+        channel_rank AS (
+            SELECT
+                f.store_id,
+                ch.name                             AS channel_name,
+                SUM(f.total_amount)                 AS channel_sales,
+                RANK() OVER (
+                    PARTITION BY f.store_id
+                    ORDER BY SUM(f.total_amount) DESC
+                )                                   AS rnk
+            FROM filtered f
+            JOIN channels ch ON ch.id = f.channel_id
+            GROUP BY f.store_id, ch.name
+        ),
+        top_ch AS (
+            SELECT store_id, channel_name, channel_sales
+            FROM channel_rank
+            WHERE rnk = 1
+        )
+        SELECT
+            st.name                                 AS store_name,
+            sm.store_id                              AS store_id,
+            sm.total_sales                           AS total_sales,
+            sm.total_orders                          AS total_orders,
+            sm.average_ticket                        AS average_ticket,
+            CASE
+                WHEN sm.total_sales > 0 AND tc.channel_name IS NOT NULL THEN
+                    json_build_object(
+                        'channel',   tc.channel_name,
+                        'share_pct', ROUND((tc.channel_sales / sm.total_sales * 100)::NUMERIC, 2)
+                    )
+                ELSE NULL
+            END                                      AS top_channel
+        FROM summary sm
+        JOIN stores st ON st.id = sm.store_id
+        LEFT JOIN top_ch tc ON tc.store_id = sm.store_id
+        ORDER BY sm.total_sales DESC;
+        """)
+
+        params: Dict[str, Any] = {
+            "store_ids": store_ids,  # asyncpg aceita list -> int[]
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+
+        res = await self._execute(query, params)
+        return await self._rows(res)
+
+    # Alias opcional para compatibilidade se você realmente quiser o nome com "dor"
+    async def get_store_performance_dor_period(
+            self,
+            store_ids: List[int],
+            start_date: date,
+            end_date: date,
+    ) -> List[Dict[str, Any]]:
+        return await self.get_store_performance_for_period(store_ids, start_date, end_date)
+
+    async def get_last_sale_date_for_store(self, store_id: int) -> Optional[date]:
+            """
+            Retorna a última data (DATE) em que houve venda COMPLETED para a loja.
+            """
+            sql = text("""
+                SELECT MAX(created_at)::DATE AS last_date
+                FROM sales
+                WHERE store_id = :store_id
+                  AND sale_status_desc = 'COMPLETED'
+            """)
+            res = await self._execute(sql, {"store_id": store_id})
+            rows = await self._rows(res)
+            if not rows:
+                return None
+            return rows[0].get("last_date")
