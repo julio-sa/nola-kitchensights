@@ -21,16 +21,81 @@ Nola KitchenSights é uma plataforma de analytics desenhada para donos de restau
 
 ### Backend
 
+#### 0) (opcional, mas recomendado) Subir Postgres via Docker
+Opção A - usando Docker Compose (pasta `infra/` sugerida)
+
 ```bash
+# na raiz do projeto
+mkdir -p infra && cat > infra/docker-compose.yml <<'YML'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: challenge
+      POSTGRES_PASSWORD: challenge
+      POSTGRES_DB: challenge_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U challenge -d challenge_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+YML
+
+docker compose -f infra/docker-compose.yml up -d db
+```
+
+Opção B — só Docker (sem compose)
+```bash
+docker run -d --name nola-db \
+  -e POSTGRES_USER=challenge \
+  -e POSTGRES_PASSWORD=challenge \
+  -e POSTGRES_DB=challenge_db \
+  -p 5432:5432 postgres:15
+```
+
+#### 1) entrar na pasta do backend (se seu backend está na raiz, ignore)
+cd backend   # ou cd .
+
+#### 2) criar/ativar venv
 python -m venv .venv
-source .venv/bin/activate
+.venv\Scripts\Activate.ps1
+
+#### 3) instalar dependências
+pip install --upgrade pip
+pip install -r requirements.txt
+
+#### 4) configurar variáveis (exemplo .env)
+#### DB_DSN=postgresql+asyncpg://user:pass@localhost:5432/nola
+#### CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:8080,http://localhost:8000
+
+#### 5) rodar API
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+#### 6) testar endpoint
+#### GET http://localhost:8000/api/v1/widgets/revenue-overview?store_id=1&start_date=2025-10-01&end_date=2025-10-31
+
+Powershell
+```powershell
+python -m venv .venv
+.venv/Scripts/Activate.ps1
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 ou
-```bash
+Command Prompt
+```cmd
 python -m venv .venv
-source .venv/Scripts/activate
+.venv/Scripts/activate.bat
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+ou
+Linux/macOS
+```Linux/macOS
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
@@ -44,6 +109,7 @@ cd nola_kitchensights_app
 flutter pub get
 flutter run -d chrome
 ```
+# se der erro de PATH do Flutter/Dart, veja flutter doctor
 
 O app se comunica com `http://localhost:8000/api/v1`. Ajuste `lib/core/constants.dart` caso rode o backend em outra porta/host.
 
